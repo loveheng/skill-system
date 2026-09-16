@@ -813,6 +813,8 @@ toolbox 脚本编写规范 v1.1（唯一事实源——由元工具内嵌，任�
   - --json：仅输出一行 JSON 结论 {"status":"OK|FAIL","severity":"info|warn|error","message":"..."}
     （shell 用 printf 实现；message 内禁双引号）；
   - 退出码契约：0=通过 1=检查未通过 2=自身故障（--json 时退出码必须与 status 一致）；
+  - 长任务（manual 部署/回归类）的 --json 语义 = 快速预检结论，不执行任务本体；
+    任务本体由裸跑触发，且必须在 usage 里写明两者区别；
   - guard 类（trigger != manual）必带 --self-test 金丝雀：内嵌已知坏样本，证明“能抓到坏”。
 
 3. 语言细则

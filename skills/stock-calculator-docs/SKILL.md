@@ -105,7 +105,7 @@ find docs -maxdepth 1 -name '*.md' ! -name README.md
 
 第一条查 frontmatter 四项（缺开头/status 非法/updated 非法/字段超量），第二条查根目录平铺。
 
-收集与覆盖校验跑仓库根 `docs-index-lint.sh`（可推导信息不建第二份拷贝，现场 derive）：默认输出 docs 全量收集视图（路径 + status + updated，status= 为空即 frontmatter 异常）并双向校验 README↔docs 覆盖（README 链接必须存在；每个非 README 文档必须在 README 有条目，域墓碑 README 天然豁免）；`-c` 仅收集视图。退出码非 0 = 有问题。
+收集与覆盖校验跑仓库 `scripts/agent-tools/docs-index-lint.sh`（可推导信息不建第二份拷贝，现场 derive；已入 toolbox 项目池）：默认输出 docs 全量收集视图（路径 + status + updated，status= 为空即 frontmatter 异常）并双向校验 README↔docs 覆盖（README 链接必须存在；每个非 README 文档必须在 README 有条目，域墓碑 README 天然豁免）；`-c` 仅收集视图。退出码非 0 = 有问题。
 
 另设 updated 漏刷软自查（改完当晚跑，只提醒不拦截）：
 
