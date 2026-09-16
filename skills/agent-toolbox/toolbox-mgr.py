@@ -13,7 +13,7 @@ toolbox-mgr — 全局脚本工具箱管理器（规范 SSOT + 执行器）。
                          生成脚本脚手架（默认 sh——shell 一等公民优先）
   check <path> [--scope global|project] [--force]
                          校验脚本合规（头部/help/--json/self-test/语言门禁）并移入工具池
-  list [--json]          派生工具清单（扫描两级池，⚠ 标记不合规项）
+  list [--json]          派生工具清单（扫描两级池，⚠ = 不合规；last_run 由使用台账派生）
   run-hooks <hook> [--quiet] [--json] [--notify]
                          执行该钩子下全部工具；任一 FAIL → exit 1（工具自身故障 fail-open）
   install-hooks [--remove]
@@ -43,6 +43,7 @@ HOME = Path.home()
 TOOLBOX_DIR = HOME / ".agents" / "toolbox"
 SCRIPTS_DIR = TOOLBOX_DIR / "scripts"
 STATE_DIR = TOOLBOX_DIR / "state"
+LEDGER_FILE = STATE_DIR / "usage-ledger.jsonl"
 TRASH_DIR = TOOLBOX_DIR / ".trash"
 MGR_PATH = Path(__file__).resolve()
 MARKER_BEGIN = "# >>> toolbox-mgr >>>"
@@ -308,13 +309,53 @@ def parse_verdict(out):
     return None
 
 
+# ---------- usage ledger：逐次使用流水（append-only，fail-open） ----------
+
+def record_usage(name, scope, rc, ms, src):
+    """追加一行使用流水；台账故障绝不影响工具执行。"""
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        rec = {"ts": datetime.now().isoformat(timespec="seconds"),
+               "name": name, "scope": scope, "exit": rc, "ms": ms, "src": src}
+        with LEDGER_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def load_last_runs():
+    """从台账派生每工具最近一次运行时间（坏行/缺文件静默降级为空）。"""
+    last = {}
+    try:
+        lines = LEDGER_FILE.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return last
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        name, ts = rec.get("name"), rec.get("ts")
+        if name and ts and (name not in last or ts > last[name]):
+            last[name] = ts
+    return last
+
+
 # ---------- list / check ----------
 
 def cmd_list(args):
     entries = collect()
+    last_runs = load_last_runs()
     if args.json:
-        slim = [{k: e[k] for k in ("name", "scope", "trigger", "platform",
-                                   "summary", "problems", "file")} for e in entries]
+        slim = []
+        for e in entries:
+            d = {k: e[k] for k in ("name", "scope", "trigger", "platform",
+                                   "summary", "problems", "file")}
+            d["last_run"] = last_runs.get(e["name"])
+            slim.append(d)
         print(json.dumps(slim, ensure_ascii=False, indent=2))
         return 0
     if not entries:
@@ -327,17 +368,19 @@ def cmd_list(args):
             extra += "  (被项目池覆盖)"
         if e["problems"]:
             extra += "  ⚠ " + e["problems"][0]
-        rows.append((e["name"], e["scope"], e["trigger"], e["summary"] + extra))
+        rows.append((e["name"], e["scope"], e["trigger"],
+                     last_runs.get(e["name"], "-"), e["summary"] + extra))
     if sys.stdout.isatty():
-        w1 = max(len(r[0]) for r in rows + [("name", "", "", "")])
-        w2 = max(len(r[1]) for r in rows + [("", "scope", "", "")])
-        w3 = max(len(r[2]) for r in rows + [("", "", "trigger", "")])
-        print("%-*s  %-*s  %-*s  %s" % (w1, "name", w2, "scope", w3, "trigger", "summary"))
+        w1 = max(len(r[0]) for r in rows + [("name", "", "", "", "")])
+        w2 = max(len(r[1]) for r in rows + [("", "scope", "", "", "")])
+        w3 = max(len(r[2]) for r in rows + [("", "", "trigger", "", "")])
+        w4 = max(len(r[3]) for r in rows + [("", "", "", "last_run", "")])
+        print("%-*s  %-*s  %-*s  %-*s  %s" % (w1, "name", w2, "scope", w3, "trigger", w4, "last_run", "summary"))
         for r in rows:
-            print("%-*s  %-*s  %-*s  %s" % (w1, r[0], w2, r[1], w3, r[2], r[3]))
+            print("%-*s  %-*s  %-*s  %-*s  %s" % (w1, r[0], w2, r[1], w3, r[2], w4, r[3], r[4]))
     else:
         for r in rows:
-            print("%s\t%s\t%s\t%s" % r)
+            print("%s\t%s\t%s\t%s\t%s" % r)
     return 0
 
 
@@ -430,14 +473,18 @@ def cmd_run_hooks(args):
         if e["overridden"] or e["trigger"] != hook:
             continue
         if e["problems"]:
+            record_usage(e["name"], e["scope"], 2, 0, "hook:" + hook)
             results.append({"name": e["name"], "scope": e["scope"], "status": "ERROR",
                             "severity": "error",
                             "message": "不合规: " + "; ".join(e["problems"][:2])})
             continue
         if not platform_ok(e):
             continue
+        t0 = time.monotonic()
         rc, out, err = run_cmd(
             interpreter_for(e["file"], detect_lang(e["file"])) + [e["file"], "--json"], 10)
+        record_usage(e["name"], e["scope"], rc,
+                     int((time.monotonic() - t0) * 1000), "hook:" + hook)
         verdict = parse_verdict(out)
         if verdict is None:
             results.append({"name": e["name"], "scope": e["scope"], "status": "ERROR",
@@ -601,7 +648,7 @@ README_TMPL = """# toolbox — 全局脚本工具箱
 
 ## 目录
   scripts/   全局工具池（跨项目）
-  state/     钩子运行状态 last-run-<hook>.json
+  state/     钩子运行状态 last-run-<hook>.json；使用台账 usage-ledger.jsonl（append-only）
   .trash/    退役脚本
 项目池: <repo>/scripts/agent-tools/（同名覆盖全局）
 """

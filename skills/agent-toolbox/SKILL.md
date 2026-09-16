@@ -17,7 +17,7 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 
 - 全局池：`~/.agents/toolbox/scripts/`（跨项目通用）
 - 项目池：`<repo>/scripts/agent-tools/`（项目专属，同名覆盖全局）
-- 状态：`~/.agents/toolbox/state/`（last-run-<hook>.json）；退役：`.trash/`
+- **状态**：`~/.agents/toolbox/state/`（last-run-<hook>.json；使用台账 usage-ledger.jsonl——append-only 逐次流水，`list` 的 last_run 由此派生，直连调用不计入）；退役：`.trash/`
 - shim：`~/.local/bin/toolbox`——人与 AI 共用同一命令入口，AI 无专属通道
 
 ## 命令面（`toolbox help` 或 `toolbox <cmd> --help` 看详情）
