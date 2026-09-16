@@ -9,10 +9,10 @@ toolbox-mgr — 全局脚本工具箱管理器（规范 SSOT + 执行器）。
 
 命令:
   init [--project]       初始化全局池目录与 shim（幂等）；--project 附加初始化当前仓库项目池
-  new <name> [--scope global|project] [--trigger T] [--summary S]
-                         生成脚本脚手架（默认项目池）
+  new <name> [--lang sh|python] [--scope global|project] [--trigger T] [--summary S]
+                         生成脚本脚手架（默认 sh——shell 一等公民优先）
   check <path> [--scope global|project] [--force]
-                         校验脚本合规（头部/help/--json/self-test/stdlib）并移入工具池
+                         校验脚本合规（头部/help/--json/self-test/语言门禁）并移入工具池
   list [--json]          派生工具清单（扫描两级池，⚠ 标记不合规项）
   run-hooks <hook> [--quiet] [--json] [--notify]
                          执行该钩子下全部工具；任一 FAIL → exit 1（工具自身故障 fail-open）
@@ -38,7 +38,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "1.0"
+VERSION = "1.1"
 HOME = Path.home()
 TOOLBOX_DIR = HOME / ".agents" / "toolbox"
 SCRIPTS_DIR = TOOLBOX_DIR / "scripts"
@@ -110,7 +110,8 @@ def install_shim():
 
 def parse_header(path):
     """返回 (meta, problems)。只认 'toolbox-script' 标记行之后的连续字段区；
-    遇首个非字段/非空/非引号行即结束，块外内容一律忽略。"""
+    遇首个非字段/非空/非引号行即结束，块外内容一律忽略。
+    双语言载体：python 写在 docstring 内；shell 写在连续 # 注释内（剥 # 后同语法解析）。"""
     meta, problems = {}, []
     try:
         lines = Path(path).read_text(encoding="utf-8").splitlines()
@@ -119,13 +120,15 @@ def parse_header(path):
     in_block = False
     for raw in lines:
         s = raw.strip()
-        if s == "toolbox-script":
+        if s.lstrip("#").strip() == "toolbox-script":
             if in_block:
                 problems.append("toolbox-script 标记块重复")
             in_block = True
             continue
         if not in_block:
             continue
+        if s.startswith("#"):  # shell 注释载体：剥 # 后按同一字段语法解析
+            s = s.lstrip("#").strip()
         if s in ("", '"""', "'''"):
             continue
         m = FIELD_RE.match(s)
@@ -151,7 +154,7 @@ def validate_meta(meta):
         problems.append("format 必须为 v1")
     if meta.get("trigger") is not None and meta["trigger"] not in TRIGGERS:
         problems.append("trigger 非法: %s（可选: %s）" % (meta["trigger"], "|".join(TRIGGERS)))
-    if meta.get("platform", "any") not in ("any", "linux", "darwin", "windows"):
+    if meta.get("platform", "any") not in ("any", "unix", "linux", "darwin", "windows"):
         problems.append("platform 非法: %s" % meta.get("platform"))
     name = meta.get("name")
     if name is not None and not NAME_RE.match(name):
@@ -170,6 +173,40 @@ def stdlib_problems(path):
     bad = sorted({m for m in IMPORT_RE.findall(text)
                   if m not in stdlib and m != "__future__"})
     return ["引入非标准库: %s" % m for m in bad]
+
+
+# ---------- 语言双通道 v1.1：shell 一等公民优先，python 兜底 ----------
+
+def detect_lang(path):
+    return "shell" if Path(path).suffix == ".sh" else "python"
+
+
+def shebang_problems(path, lang):
+    """语言门禁（shebang）：python → python*；shell → sh/bash/dash/zsh。"""
+    try:
+        first = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()[0].strip()
+    except (OSError, IndexError):
+        return ["缺少 shebang 首行"]
+    if not first.startswith("#!"):
+        return ["缺少 shebang 首行: %s" % first[:60]]
+    body = first[2:].strip()
+    if lang == "python":
+        return [] if "python" in body else ["shebang 必须指向 python: %s" % first[:60]]
+    tok = body.split()[-1] if body.split() else ""
+    if tok.rsplit("/", 1)[-1] in ("sh", "bash", "dash", "zsh", "ash"):
+        return []
+    return ["shebang 必须为 #!/bin/sh 或 #!/usr/bin/env bash: %s" % first[:60]]
+
+
+def interpreter_for(path, lang):
+    """运行入口：python 用当前解释器；shell 按 shebang 选 sh/bash（Windows 拒收 shell）。"""
+    if lang == "shell":
+        try:
+            first = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        except (OSError, IndexError):
+            first = ""
+        return ["bash"] if "bash" in first else ["sh"]
+    return [sys.executable]
 
 
 def run_cmd(args, timeout=15):
@@ -212,11 +249,17 @@ def collect():
     for scope, d in pools:
         if not d.is_dir():
             continue
-        for f in sorted(d.glob("*.py")):
+        for f in sorted(list(d.glob("*.py")) + list(d.glob("*.sh"))):
+            lang = detect_lang(f)
             meta, problems = parse_header(f)
             if meta:
                 problems += validate_meta(meta)
-            problems += stdlib_problems(f)
+            if lang == "python":
+                problems += stdlib_problems(f)
+            else:
+                problems += shebang_problems(f, lang)
+                if meta.get("platform", "any") == "any":
+                    problems.append("shell 工具 platform 必须为 unix（或 linux/darwin）")
             name = meta.get("name") or ("?" + f.stem)
             e = {"name": name, "file": str(f), "scope": scope,
                  "trigger": meta.get("trigger", "?"),
@@ -239,7 +282,11 @@ def collect():
 def platform_ok(e):
     p = e["platform"]
     cur = "windows" if IS_WIN else ("darwin" if IS_MAC else "linux")
-    return p == "any" or p == cur
+    if p == "any":
+        return True
+    if p == "unix":
+        return cur in ("linux", "darwin")
+    return p == cur
 
 
 def parse_verdict(out):
@@ -299,23 +346,38 @@ def cmd_check(args):
     if not src.is_file():
         print("✗ 文件不存在: %s" % src)
         return 2
+    if src.suffix not in (".py", ".sh"):
+        print("✗ 仅支持 .py / .sh 脚本: %s" % src.name)
+        return 1
+    lang = detect_lang(src)
     meta, problems = parse_header(src)
     problems += validate_meta(meta)
-    expected = (meta.get("name") or "") + ".py"
+    expected = (meta.get("name") or "") + src.suffix
     if meta.get("name") and src.name != expected:
         problems.append("文件名必须与 name 一致: 应为 %s" % expected)
-    problems += stdlib_problems(src)
+    if lang == "python":
+        problems += stdlib_problems(src)
+    else:
+        if IS_WIN:
+            problems.append("shell 工具不支持 Windows（spec: shell 不入 Windows 池）")
+        problems += shebang_problems(src, lang)
+        if meta.get("platform", "any") == "any":
+            problems.append("shell 工具 platform 必须为 unix（或 linux/darwin）")
+        if not IS_WIN:
+            rc, _, err = run_cmd(interpreter_for(src, lang) + ["-n", str(src)], 15)
+            if rc != 0:
+                problems.append("shell 语法检查未通过(-n): %s" % (err or "").strip()[:200])
     if problems:
         print("✗ 头部/静态检查未通过:")
         for p in problems:
             print("  - %s" % p)
         return 1
-    rc, out, err = run_cmd([sys.executable, str(src), "--help"], 15)
+    rc, out, err = run_cmd(interpreter_for(src, lang) + [str(src), "--help"], 15)
     if rc != 0:
         print("✗ --help 退出码 %d（argparse 必须实现标准 --help）\n%s"
               % (rc, (err or out).strip()[:300]))
         return 1
-    rc, out, err = run_cmd([sys.executable, str(src), "--json"], 15)
+    rc, out, err = run_cmd(interpreter_for(src, lang) + [str(src), "--json"], 15)
     verdict = parse_verdict(out)
     if rc not in (0, 1) or verdict is None or verdict.get("status") not in ("OK", "FAIL"):
         print("✗ --json 未输出契约结论 {status,severity,message}（退出码 %d）\n%s"
@@ -327,7 +389,7 @@ def cmd_check(args):
             print("✗ 钩子型工具（trigger≠manual）必须声明 self-test 参数（金丝雀）")
             return 1
     else:
-        rc, out, err = run_cmd([sys.executable, str(src), st], 15)
+        rc, out, err = run_cmd(interpreter_for(src, lang) + [str(src), st], 15)
         if rc != 0:
             print("✗ self-test 退出码 %d:\n%s" % (rc, (out + err).strip()[-300:]))
             return 1
@@ -348,6 +410,8 @@ def cmd_check(args):
     if dest.exists():
         dest.unlink()
     shutil.move(str(src), str(dest))
+    if lang == "shell":
+        dest.chmod(0o755)
     print("✓ 已登记: [%s] %s → %s" % (scope, meta["name"], dest))
     return 0
 
@@ -372,7 +436,8 @@ def cmd_run_hooks(args):
             continue
         if not platform_ok(e):
             continue
-        rc, out, err = run_cmd([sys.executable, e["file"], "--json"], 10)
+        rc, out, err = run_cmd(
+            interpreter_for(e["file"], detect_lang(e["file"])) + [e["file"], "--json"], 10)
         verdict = parse_verdict(out)
         if verdict is None:
             results.append({"name": e["name"], "scope": e["scope"], "status": "ERROR",
@@ -527,7 +592,7 @@ README_TMPL = """# toolbox — 全局脚本工具箱
 
 ## 快速上手
   toolbox spec                 查看脚本编写规范
-  toolbox new <name>           生成脚手架（默认项目池；--scope global 入全局池）
+  toolbox new <name>           生成脚手架（默认 shell 语言、项目池；--lang python / --scope global 可选）
   toolbox check <path>         校验并登记（文件移入工具池）
   toolbox list                 派生清单（⚠ = 不合规）
   toolbox run-hooks <hook>     执行钩子（bootstrap/audit/cron/pre-commit）
@@ -617,6 +682,71 @@ if __name__ == "__main__":
     main()
 '''
 
+# shell 脚手架（@占位符替换，避免与 shell 语法冲突；$VAR 仅出现在文件内容中）
+SCAFFOLD_SH = '''#!/bin/sh
+# @@SUMMARY@@（脚手架——把占位实现替换为真实逻辑）
+#
+# toolbox-script
+# format: v1
+# name: @@NAME@@
+# summary: @@SUMMARY@@
+# trigger: @@TRIGGER@@
+# platform: unix
+# self-test: --self-test
+
+set -eu
+MSG=""
+
+usage() {
+  cat <<'EOF'
+用法: @@NAME@@.sh [--json] [--self-test]
+  --json       输出一行 JSON 契约结论（message 内禁双引号）
+  --self-test  金丝雀自检（guard 类必实现）
+EOF
+}
+
+run_checks() {
+  # TODO: 实现真实检查；失败把人话（问题本身+修复方向）写入 MSG 并 return 1
+  MSG="脚手架尚未实现检查逻辑"
+  return 1
+}
+
+self_test() {
+  # TODO: 金丝雀——构造已知坏样本断言能抓到坏；好样本应通过
+  echo "self-test: 脚手架占位未实现真实检查，禁止登记"
+  return 2
+}
+
+case "${1-}" in
+  --self-test)
+    self_test
+    ;;
+  --json)
+    if run_checks; then
+      printf '{"status":"OK","severity":"info","message":"%s"}\n' "$MSG"
+      exit 0
+    fi
+    printf '{"status":"FAIL","severity":"warn","message":"%s"}\n' "$MSG"
+    exit 1
+    ;;
+  --help|-h)
+    usage
+    ;;
+  "")
+    if run_checks; then
+      echo "OK: $MSG"
+    else
+      echo "FAIL: $MSG"
+      exit 1
+    fi
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+'''
+
 
 def cmd_new(args):
     if not SCRIPTS_DIR.is_dir():
@@ -633,48 +763,68 @@ def cmd_new(args):
     else:
         d = SCRIPTS_DIR
     d.mkdir(parents=True, exist_ok=True)
-    dest = d / (args.name + ".py")
+    ext = ".sh" if args.lang == "sh" else ".py"
+    dest = d / (args.name + ext)
     if dest.exists():
         print("✗ 已存在: %s" % dest)
         return 1
     summary = args.summary or args.name
-    dest.write_text(SCAFFOLD.format(name=args.name, summary=summary,
-                                    trigger=args.trigger), encoding="utf-8")
-    print("✓ 脚手架: %s" % dest)
+    if args.lang == "sh":
+        dest.write_text(SCAFFOLD_SH.replace("@@NAME@@", args.name)
+                                   .replace("@@SUMMARY@@", summary)
+                                   .replace("@@TRIGGER@@", args.trigger), encoding="utf-8")
+        dest.chmod(0o755)
+    else:
+        dest.write_text(SCAFFOLD.format(name=args.name, summary=summary,
+                                        trigger=args.trigger), encoding="utf-8")
+    print("✓ 脚手架(%s): %s" % (args.lang, dest))
     print("下一步: 编辑实现 → toolbox check %s" % dest)
     return 0
 
 # ---------- spec：脚本编写规范（唯一事实源，内嵌本文件） ----------
 
 SPEC_TEXT = '''\
-toolbox 脚本编写规范 v1（唯一事实源——由元工具内嵌，任何副本不具效力）
+toolbox 脚本编写规范 v1.1（唯一事实源——由元工具内嵌，任何副本不具效力）
 
 0. 宪法
-  - 单文件、Python >= 3.9、仅标准库；禁交互输入；单次执行 <= 10s；可重复执行结果一致（幂等）。
+  - 语言双通道，shell 优先：shell（POSIX sh / bash）为一等公民，优先实现；
+    仅当 shell 无法合理实现（复杂文本/JSON 解析、跨平台探测等）才用 Python（>= 3.9、仅标准库）。
+  - 单文件；禁交互输入；可重复执行结果一致（幂等）。
   - 文件写入仅限：当前仓库内，或参数显式指定的路径。
   - 网络仅在工具用途本身是网络检查时允许，且必须设短超时。
+  - 时长预算：钩子型（trigger != manual）单次执行 <= 10s（run-hooks 硬超时）；
+    manual 类不限时（长任务允许，但须幂等、可安全重跑）。
 
-1. 头部块（写在模块 docstring 内，收集器只认此块）
-  """
-  toolbox-script
-  format: v1
-  name: <小写-连字符>
-  summary: <一句话>
-  trigger: bootstrap|audit|cron|pre-commit|manual
-  platform: any            # 可选，默认 any；平台差异用运行时探测实现，严禁 fork 文件
-  self-test: --self-test   # trigger != manual 时必填
-  """
+1. 头部块（字段与语言无关；收集器只认 toolbox-script 标记行起的连续字段区，
+   遇首个非字段行即结束——shell 头部块之后紧跟第一行代码收尾）
+  Python（模块 docstring 内）:        shell（连续 # 注释内）:
+    """                                # toolbox-script
+    toolbox-script                     # format: v1
+    format: v1                         # name: <小写-连字符>
+    name: <小写-连字符>                 # summary: <一句话>
+    summary: <一句话>                  # trigger: bootstrap|audit|cron|pre-commit|manual
+    trigger: ...                       # platform: unix       # shell 必填 unix/linux/darwin
+    platform: any                      # self-test: --self-test   # trigger != manual 必填
+    self-test: --self-test
+    """
 
-2. 必须实现
-  - argparse 标准 --help；
-  - --json：仅输出一行 JSON 结论 {"status":"OK|FAIL","severity":"info|warn|error","message":"..."}；
+2. 必须实现（与语言无关）
+  - 标准 --help（shell 用 usage() + cat <<EOF 实现，退出码 0）；
+  - --json：仅输出一行 JSON 结论 {"status":"OK|FAIL","severity":"info|warn|error","message":"..."}
+    （shell 用 printf 实现；message 内禁双引号）；
   - 退出码契约：0=通过 1=检查未通过 2=自身故障（--json 时退出码必须与 status 一致）；
   - guard 类（trigger != manual）必带 --self-test 金丝雀：内嵌已知坏样本，证明“能抓到坏”。
 
-3. 失败语义
+3. 语言细则
+  - shell（<name>.sh，优先）：shebang 必须为 #!/bin/sh 或 #!/usr/bin/env bash；
+    依赖仅限 POSIX 工具链与用途所需的常规 CLI（git/docker/gcloud 等直接可用）；
+    登记门禁含 sh -n / bash -n 语法检查；不支持 Windows（platform 必填 unix 或 linux/darwin）。
+  - python（<name>.py，兜底）：shebang 指向 python；仅标准库（import 静态校验）；platform 默认 any。
+
+4. 失败语义
   - FAIL 在 message 里写人话：问题本身 + 修复方向；不抛栈。自身故障才用退出码 2。
 
-4. 生命周期
+5. 生命周期
   - 无使用价值即 `toolbox remove`；epic 收尾时盘点 `toolbox list`，零使用项人工判退役。
 '''
 
@@ -699,7 +849,8 @@ def cmd_remove(args):
             print("已取消")
             return 0
     TRASH_DIR.mkdir(parents=True, exist_ok=True)
-    dest = TRASH_DIR / ("%s-%s.py" % (args.name, time.strftime("%Y%m%d-%H%M%S")))
+    suffix = Path(e["file"]).suffix or ".py"
+    dest = TRASH_DIR / ("%s-%s%s" % (args.name, time.strftime("%Y%m%d-%H%M%S"), suffix))
     shutil.move(e["file"], str(dest))
     print("✓ 已退役: %s → %s" % (args.name, dest))
     return 0
@@ -718,6 +869,17 @@ SAMPLE_OK = "\n".join([
     '"""',
 ])
 SAMPLE_BAD = "x = 1\n"
+SAMPLE_SH = "\n".join([
+    "#!/bin/sh",
+    "# demo",
+    "#",
+    "# toolbox-script",
+    "# format: v1",
+    "# name: demo-sh",
+    "# summary: demo",
+    "# trigger: manual",
+    "# platform: unix",
+])
 
 
 def cmd_self_test(args):
@@ -734,12 +896,27 @@ def cmd_self_test(args):
         _, prq = parse_header(q)
         if not prq:
             fails.append("头部解析未拒绝无头部样本")
+        s = Path(td) / "demo-sh.sh"
+        s.write_text(SAMPLE_SH, encoding="utf-8")
+        sm, sp = parse_header(s)
+        if sp or sm.get("name") != "demo-sh" or sm.get("platform") != "unix":
+            fails.append("shell 头部解析失败: %r %r" % (sm, sp))
+        if detect_lang(s) != "shell":
+            fails.append("detect_lang 未识别 .sh")
+        if shebang_problems(s, "shell"):
+            fails.append("shebang 校验误拒合法 shell 样本: %r" % shebang_problems(s, "shell"))
         vpr = validate_meta({"format": "v1", "name": "demo-tool",
                              "summary": "x", "trigger": "nope"})
         if not any("trigger" in x for x in vpr):
             fails.append("validate_meta 未拒绝非法 trigger")
+        if any("platform" in x for x in validate_meta(
+                {"format": "v1", "name": "demo-tool", "summary": "x",
+                 "trigger": "audit", "platform": "unix"})):
+            fails.append("validate_meta 误拒 platform: unix")
     if "退出码" not in SPEC_TEXT:
         fails.append("SPEC_TEXT 缺少退出码契约")
+    if "shell 优先" not in SPEC_TEXT:
+        fails.append("SPEC_TEXT 未含 shell 优先条款")
     shim = Adapter().shim_file()
     if HOME not in shim.resolve().parents:
         fails.append("shim 路径不在用户目录下")
@@ -748,7 +925,7 @@ def cmd_self_test(args):
         for f in fails:
             print("  - %s" % f)
         return 2
-    print("✓ 元工具自检通过（头部解析/校验/规范/适配层）")
+    print("✓ 元工具自检通过（双语言头部解析/校验/规范/适配层）")
     return 0
 
 
@@ -765,8 +942,10 @@ def build_parser():
                    help="同时初始化当前仓库项目池 scripts/agent-tools/")
     p.set_defaults(fn=cmd_init)
 
-    p = sub.add_parser("new", help="生成脚本脚手架")
+    p = sub.add_parser("new", help="生成脚本脚手架（默认 shell——一等公民优先）")
     p.add_argument("name")
+    p.add_argument("--lang", choices=("sh", "python"), default="sh",
+                   help="脚手架语言：sh 优先（一等公民），python 兜底")
     p.add_argument("--scope", choices=("global", "project"), default="project")
     p.add_argument("--trigger", choices=TRIGGERS, default="manual")
     p.add_argument("--summary", default="")

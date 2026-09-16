@@ -48,7 +48,7 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 
 ## 铁律
 
-1. 仅标准库；Python ≥ 3.9 是唯一前置依赖；
+1. 语言双通道且 shell 优先：shell（POSIX sh/bash，platform: unix）为一等公民，优先实现；Python ≥ 3.9、仅标准库为兑底（仅当 shell 无法合理实现时使用）；
 2. guard（trigger≠manual）必带 `--self-test` 金丝雀，内嵌已知坏样本证明"能抓到坏"；
 3. 新工具首次 `check` 登记 = 引入新能力，经用户确认后执行；`remove`/`install-hooks` 属破坏性/侵入操作，执行前列影响并确认；
 4. 平台差异只允许运行时探测实现（对齐元工具内 Adapter 模式），严禁 fork 文件；
