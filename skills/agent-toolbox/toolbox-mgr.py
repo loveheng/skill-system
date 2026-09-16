@@ -12,7 +12,7 @@ toolbox-mgr — 全局脚本工具箱管理器（规范 SSOT + 执行器）。
   new <name> [--lang sh|python] [--scope global|project] [--trigger T] [--summary S]
                          生成脚本脚手架（默认 sh——shell 一等公民优先）
   check <path> [--scope global|project] [--force]
-                         校验脚本合规（头部/help/--json/self-test/语言门禁）并移入工具池
+                         校验脚本合规（头部/help/--json/self-test/语言门禁/密钥扫描）并移入工具池
   list [--json]          派生工具清单（扫描两级池，⚠ = 不合规；last_run 由使用台账派生）
   run-hooks <hook> [--quiet] [--json] [--notify]
                          执行该钩子下全部工具；任一 FAIL → exit 1（工具自身故障 fail-open）
@@ -38,7 +38,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "1.1"
+VERSION = "1.2"
 HOME = Path.home()
 TOOLBOX_DIR = HOME / ".agents" / "toolbox"
 SCRIPTS_DIR = TOOLBOX_DIR / "scripts"
@@ -176,6 +176,40 @@ def stdlib_problems(path):
     return ["引入非标准库: %s" % m for m in bad]
 
 
+# ---------- 密钥形状扫描（登记门禁）：命中即拒收，杜绝硬编码凭证 ----------
+
+SECRET_RES = (
+    ("AWS AKIA", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("GitHub token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b")),
+    ("OpenAI sk-", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("Slack token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
+    ("私钥块", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----")),
+    ("字面量口令", re.compile(
+        r"(?i)(?<![a-z])(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?key|"
+        r"auth[_-]?token|token)\b['\"]?\s*[:=]\s*['\"]([^'\"\n$<{]{8,})['\"]")),
+)
+
+
+def secret_problems(path):
+    """逐行扫描已知凭证形状与字面量口令；占位符（$VAR/${VAR}/{x}）与 env 引用放行。"""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    hits = []
+    for no, line in enumerate(lines, 1):
+        for label, rx in SECRET_RES:
+            if rx.search(line):
+                hits.append("疑似硬编码密钥(第 %d 行, %s)" % (no, label))
+                break
+        if len(hits) >= 3:
+            break
+    if len(hits) >= 3:
+        hits.append("疑似硬编码密钥: 仅列前 3 处")
+    return hits
+
+
 # ---------- 语言双通道 v1.1：shell 一等公民优先，python 兜底 ----------
 
 def detect_lang(path):
@@ -261,6 +295,7 @@ def collect():
                 problems += shebang_problems(f, lang)
                 if meta.get("platform", "any") == "any":
                     problems.append("shell 工具 platform 必须为 unix（或 linux/darwin）")
+            problems += secret_problems(f)
             name = meta.get("name") or ("?" + f.stem)
             e = {"name": name, "file": str(f), "scope": scope,
                  "trigger": meta.get("trigger", "?"),
@@ -398,6 +433,7 @@ def cmd_check(args):
     expected = (meta.get("name") or "") + src.suffix
     if meta.get("name") and src.name != expected:
         problems.append("文件名必须与 name 一致: 应为 %s" % expected)
+    problems += secret_problems(src)
     if lang == "python":
         problems += stdlib_problems(src)
     else:
@@ -831,7 +867,7 @@ def cmd_new(args):
 # ---------- spec：脚本编写规范（唯一事实源，内嵌本文件） ----------
 
 SPEC_TEXT = '''\
-toolbox 脚本编写规范 v1.1（唯一事实源——由元工具内嵌，任何副本不具效力）
+toolbox 脚本编写规范 v1.2（唯一事实源——由元工具内嵌，任何副本不具效力）
 
 0. 宪法
   - 语言双通道，shell 优先：shell（POSIX sh / bash）为一等公民，优先实现；
@@ -839,6 +875,8 @@ toolbox 脚本编写规范 v1.1（唯一事实源——由元工具内嵌，任�
   - 单文件；禁交互输入；可重复执行结果一致（幂等）。
   - 文件写入仅限：当前仓库内，或参数显式指定的路径。
   - 网络仅在工具用途本身是网络检查时允许，且必须设短超时。
+  - 严禁硬编码凭证：密钥/口令一律经环境变量注入；登记门禁做密钥形状扫描
+    （AKIA / ghp_ / sk- / 私钥块 / 字面量口令等），命中即拒收。
   - 时长预算：钩子型（trigger != manual）单次执行 <= 10s（run-hooks 硬超时）；
     manual 类不限时（长任务允许，但须幂等、可安全重跑）。
 
@@ -962,6 +1000,19 @@ def cmd_self_test(args):
                 {"format": "v1", "name": "demo-tool", "summary": "x",
                  "trigger": "audit", "platform": "unix"})):
             fails.append("validate_meta 误拒 platform: unix")
+        fake_gh = "ghp_" + "A1bC" * 6
+        lk = Path(td) / "leak.py"
+        lk.write_text('TOKEN = "%s"\npassword = "c0rrect-horse-9"\n' % fake_gh,
+                      encoding="utf-8")
+        hp = secret_problems(lk)
+        if len(hp) != 2:
+            fails.append("secret 扫描未抓到已知坏样本: %r" % hp)
+        cl = Path(td) / "clean.py"
+        cl.write_text('TOKEN = os.environ["GH_TOKEN"]\npassword = "${DB_PASS}"\n'
+                      'api_key = config["api_key"]\n', encoding="utf-8")
+        cp = secret_problems(cl)
+        if cp:
+            fails.append("secret 扫描误拒干净样本: %r" % cp)
     if "退出码" not in SPEC_TEXT:
         fails.append("SPEC_TEXT 缺少退出码契约")
     if "shell 优先" not in SPEC_TEXT:
