@@ -13,24 +13,25 @@ description: stock-calculator-service 的 Native 构建与多模块故障排查�
 > 直接出 native —— 303MB ELF、启动 0.317s、90s 全绿（0 ERROR/0 WARN）、curl 403 门禁通过。
 > 2026-09-11 补课：`stock-calculator-data`（数据服务拆分，零 DB）native 化完成 —— 201MB ELF、
 > 启动 0.3s、R1 PDFBox 冒烟 PASS（契约反射/awt JNI/字体资源三缺口，见 §三表与 §四 agent 采集）
+> 2026-09-17 修订：§一 模块清单按 `stock-calculator-workflow`「模块结构」收敛（common 已于
+> 2026-09-01 并入 main），install / 排查命令同步改为 contract
 
 ## 一、项目关键事实（2026-08 验证）
 
-- Maven 四模块：父 POM(packaging=pom) + `stock-calculator-contract`（消息契约：信封/DTO/队列常量，
-  纯 POJO；spring-core 仅 optional 供 ContractRuntimeHints）+ `stock-calculator-common`（公共件 +
-  CLS 爬虫 + JPA + auth）+ `stock-calculator-main`（Spring AI OCR + 爬虫 + auth，需 PostgreSQL）
-  + `stock-calculator-data`（数据服务：零 DB，collector/worker/ingest 三角色经 MQ 通信）
+- Maven 模块：contract / main / data 三模块；结构与包名唯一事实源 `stock-calculator-workflow`
+  「模块结构」（`stock-calculator-common` 已于 2026-09-01 并入 main，本 skill 不自带模块清单）。
+  native 相关补充：contract 纯 POJO，spring-core 仅 optional 供 ContractRuntimeHints
 - 两个 native 可构建模块：main（`stock-calculator-main/build-native.sh`，303MB，需 PostgreSQL）
   与 data（`stock-calculator-data/build-native.sh`，201MB，需本地 RabbitMQ/LavinMQ；构建期
   SPRING_APPLICATION_JSON 钉死三角色全开 all-in-one 变体 + dummy 凭据——**AOT 固化条件装配，
   条件评估冻结在构建期，运行期 env 只能改值不能再改条件**）
-- main 拉全量 common（JPA/爬虫/auth），native 二进制启动需连 PostgreSQL，无任何 exclusion
+- main 含全量 JPA/爬虫/auth（原 common 已并入），native 二进制启动需连 PostgreSQL，无任何 exclusion
 - 环境与工具链事实（GraalVM 路径与版本 / sdkman 已卸载 / 系统 java 无 native 工具链 / 构建用 ./mvnw）：唯一事实源 `stock-calculator-workflow`「环境与工具链」，本 skill 不复述
 - 多模块下**单独构建 native 模块前，必须先把父 POM 与依赖模块 install 进 ~/.m2**
   （忘装 contract 会报 dependency resolution 错；或构建命令一律带 `-am`）：
   ```sh
   ./mvnw install -N                      # 父 POM
-  ./mvnw install -pl stock-calculator-common,stock-calculator-contract
+  ./mvnw install -pl stock-calculator-contract
   ```
 - 启动类问题用 contextLoads 快速复现（不需要真跑应用、不需要数据库）：
   ```sh
@@ -42,7 +43,7 @@ description: stock-calculator-service 的 Native 构建与多模块故障排查�
 1. **环境探测先行**（动手前先摸清现状，不要假设）：
    `which java native-image mvn`、`java -version`、`native-image --version`、
    `ls /opt/GraalVM25 ~/.jdks`、`free -m; nproc`、
-   `ls ~/.m2/repository/com/zzh/stock-calculator-common`
+   `ls ~/.m2/repository/com/zzh/stock-calculator-contract`
 2. **启动类问题用 contextLoads 复现**：`./mvnw -q -pl <模块> -am test`，
    看第一个 BeanCreationException 的 Caused by 链
 3. **构建脚本审查清单**（build-native.sh / package-native.sh / CI workflow）：
@@ -62,7 +63,7 @@ description: stock-calculator-service 的 Native 构建与多模块故障排查�
 | 症状 | 根因 | 解法 |
 |------|------|------|
 | `source ~/.sdkman/...` 报错 / native-image 或 mvn 找不到 | sdkman 已卸载 | GraalVM 探测顺序 `JAVA_HOME` → `/opt/GraalVM25` → `PATH`；mvn 一律用 `../mvnw` |
-| `Could not find artifact com.zzh:stock-calculator-service:pom` | 单独构建子模块但父 POM 未 install | 先 `install -N` 装父 POM，再 `install -pl stock-calculator-common` |
+| `Could not find artifact com.zzh:stock-calculator-service:pom` | 单独构建子模块但父 POM 未 install | 先 `install -N` 装父 POM，再 `install -pl stock-calculator-contract` |
 | 启动报 `AotInitializerNotFoundException: ...__ApplicationContextInitializer could not be found` | AOT 类没进 native-image classpath | classpath 必须含 `target/spring-aot/main/classes`（只有 resources 不够）|
 | AOT 产物目录不存在 | `compile process-classes` 不会触发 profile 绑定的 process-aot | 显式调用 `compile spring-boot:process-aot`，不依赖 phase 绑定 |
 | native 启动报 `Failed to determine a suitable driver class` | 数据源配置缺失（postgres profile 未激活或 POSTGRES_PASS 未注入） | 确认 profile 激活且口令经环境变量注入；main 全量含 JPA，不需要也不应有 exclusion |

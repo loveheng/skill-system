@@ -1,7 +1,7 @@
 # skill-system
 ---
 status: active
-updated: 2026-09-16
+updated: 2026-09-19
 ---
 
 # AI 辅助开发 Skill 体系（设计意图与使用手册）
@@ -52,10 +52,9 @@ flowchart TD
 
 ### 1.5 冷启动（新机器 / 新成员）
 
-- **项目数据零操作**：project-local 索引、`context/` 记忆、docs/ 随仓库 clone 即得；`CURRENT` 为个人指针被 gitignore——新 clone 视同无活跃 epic，首件事 `/file <名>` 绑定（dev-loop §3 视为常态，不报错）。
-- **global 技能包（`~/.agents/skills/`）**：本身是独立 git 仓库（单机自管理），但**现状无远端**——
-  - 今日可用兑底：整目录拷贝迁移（纯 Markdown + 普通脚本自包含，rsync/scp 均可）；
-  - 推荐演进：配置私有远端后，新机器 `git clone <url> ~/.agents/skills` 一键拉取，技能包升级退化为 `git pull`。
+- **项目数据零操作**：project-local 索引、`context/` 记忆、docs/ 随仓库 clone 即得；`CURRENT` 为个人指针被 gitignore——新 clone 视同无活跃 epic，首件事 `@file <名>` 绑定（dev-loop §3 视为常态，不报错）。
+- **global 技能包（`~/.agents/skills/`）**：独立 git 仓库，**已配远端**（GitHub `skill-system`）——新机器 `git clone <url> ~/.agents/skills` 一键拉取，技能包升级退化为 `git pull`；
+- **toolbox 运行时仓（`~/.agents/toolbox/`）**：嵌套 git 仓库，**现状无远端**——迁移兑底：整目录拷贝（纯脚本 + 运行时状态，rsync/scp 均可），配置远端后可同法 clone；两仓就位后 `toolbox init` 完成 shim 适配。
 - **自检**：新环境开场让 Agent 读任一 SKILL.md 确认可达即可开工。
 
 ### 1.6 IDE 兼容性
@@ -76,7 +75,7 @@ flowchart TD
 | 会话信息 | 判定问题 | 去向（容器） | 承接机制 |
 |---|---|---|---|
 | 唯一状态/断点 | 是当前的唯一下一步吗？ | memory.md 断点行（唯一执行台） | dev-loop §3 |
-| 架构权衡 | 选型与优缺点对比吗？ | decisions.md（历史档案，AI 只写不读） | `/adr`（dev-loop §6） |
+| 架构权衡 | 选型与优缺点对比吗？ | decisions.md（历史档案，AI 只写不读） | `@adr`（dev-loop §6） |
 | 踩坑复盘 | 有通用价值的排错结论吗？ | lessons.md | dev-loop §2 |
 | 风险/假设/测试点 | 潜在雷、未验证前提、被否决的候选路径吗？ | todos.md（积压池） | memo-collector §1（未验证假设点名信号 + `(测试)` 类型） |
 | 业务逻辑细节 | 边界推演、领域规则吗？ | 代码注释（随代码生存）；宏观规则 → docs/ | backend-dev §2.6 / frontend-dev §4 防腐注释；宏观联动见 stock-calculator-docs §二 |
@@ -99,24 +98,26 @@ flowchart TD
 |---|---|---|
 | 边界推演（领域知识） | 「除权日开盘价不仅要减红利，还要考虑拆股比例，所以加了复合计算……」 | 「把这段推演写进该方法注释里，防腐化」；宏观规则走 docs/ 联动 |
 | 未验证假设 | 「假设前端传来的时间戳已统一转成 UTC……」 | Agent 收尾自查自动收；含核对动作的按可执行 `(风险)` 落 todos |
-| 测试场景启发 | 排错时被否决的候选根因路径（4 选 1 中的另外 3 条） | 「把另外 3 条异常路径 `/todo` 落盘为 `(测试)` 待办，后续补单测」 |
+| 测试场景启发 | 排错时被否决的候选根因路径（4 选 1 中的另外 3 条） | 「把另外 3 条异常路径 `@todo` 落盘为 `(测试)` 待办，后续补单测」 |
 | 咒语（元认知护栏） | 「必须用 Jakarta，不能用旧版 javax」「useEffect 必须加清理函数」 | 当轮一行附注建议写入对应 SKILL.md，经确认执行——体系自进化 |
 
 规范事实源分布：假设/测试/咒语信号 → memo-collector §1；注释防腐 → backend-dev §2.6、frontend-dev §4；断点/权衡/踩坑 → dev-loop §2/§3/§6。本文只做导航。
 
 ## 二、Skill 清单（功能与触发时机）
 
-共 13 个：global 11 + project-local 2。
+共 15 个：global 13 + project-local 2。
 
 ### 2.1 流程层（global，跨项目通用）
 
 | skill | 一句话职责 | 何时加载 |
 |---|---|---|
-| **dev-loop** | 无状态极简交互 SOP：Token 管控、tool 优先落盘、CURRENT/memory 绑定自恢复、长期记忆按大功能组织、增量日志协议与 ≥5 自动归并，配套管理指令（含 /help 求助入口）与全局护栏（静默容错/资源拦截/2 次熔断/高危确认/静态强约束/契约保护/求助人类优先） | 所有编码会话（回复格式与日志规约的底座） |
+| **dev-loop** | 无状态极简交互 SOP：Token 管控、tool 优先落盘、CURRENT/memory 绑定自恢复、长期记忆按大功能组织、增量日志协议与 ≥5 自动归并，配套管理指令（含 @help 求助入口）与全局护栏（静默容错/资源拦截/2 次熔断/高危确认/静态强约束/契约保护/求助人类优先） | 所有编码会话（回复格式与日志规约的底座） |
+| **copilot-context** | AI 聊天 Copilot 的无状态上下文记忆机制：仿人脑分层记忆（工作/情景/语义/固化/遗忘），`context/chat/` 文件架构（memory SSOT + devlog 流水 + CURRENT 指针 + profile 用户画像），≥5 条自动归并、@forget 遗忘、2 次熔断与禁虚构/隐私拒存护栏；与 dev-loop 分域——聊天/助理归本 skill，编码归 dev-loop | 所有聊天/助理类会话需跨会话记住用户、话题与承诺，或会话重置后恢复上下文时 |
 | **dev-guide** | 大需求开发、结构性重构、复杂 Bug 的流程引导 Check List：入口判定 → 需求流七步 / Bug 修复流六步，硬卡点检查 + 跨 skill 指针速查；零裁决权（薄路由） | 大需求 / 结构性重构 / 复杂 Bug；单文件微调、散修、纯咨询勿加载 |
 | **project-index** | 通用「功能 → 代码落点 + 文档落点」索引机制：表格式规范、L1/L2 两级调阅、防膨胀预算、维护协议、与 README/规范 skill 的边界 | 定位功能归属、建/维护项目索引、判断改动影响面 |
-| **memo-collector** | 备忘收集台账：AI 回复与用户口述中的待办/风险/未验证假设/测试启发自动收集去重落盘——todos.md 按域分节（活跃 epic + misc 兑底，与 devlog 挂靠同规则），七类内联标签（功能/修复/优化/文档/环境/测试/风险），咒语类信号不落台账、当轮附注建议写入对应 SKILL.md 护栏（经确认，体系自进化）；完成后流转 done.md；人工打勾自动回收（脏读校验）、(block) 阻塞绝对优先、/todo-groom 语义洗盘；与 dev-loop 互补（断点=唯一下一步，本表=全部积压） | 回复将产生「待办/注意/风险/未验证假设/咒语」类信号、用户说「记个待办/收集备忘」、发送 /todo /todos /tdone /todo-clean /todo-groom |
+| **memo-collector** | 备忘收集台账：AI 回复与用户口述中的待办/风险/未验证假设/测试启发自动收集去重落盘——todos.md 按域分节（活跃 epic + misc 兑底，与 devlog 挂靠同规则），七类内联标签（功能/修复/优化/文档/环境/测试/风险），咒语类信号不落台账、当轮附注建议写入对应 SKILL.md 护栏（经确认，体系自进化）；完成后流转 done.md；人工打勾自动回收（脏读校验）、(block) 阻塞绝对优先、@todo-groom 语义洗盘；与 dev-loop 互补（断点=唯一下一步，本表=全部积压） | 回复将产生「待办/注意/风险/未验证假设/咒语」类信号、用户说「记个待办/收集备忘」、发送 @todo @todos @tdone @todo-clean @todo-groom |
 | **agent-toolbox** | 全局脚本工具箱机制：脚本池（全局 `~/.agents/toolbox/scripts/` + 项目 `<repo>/scripts/agent-tools/`，同名项目覆盖全局）、元工具 `toolbox`（规范 SSOT + 执行器：init/new/check/list/run-hooks/install-hooks/spec/remove）、脚本自描述头部规范 v1.1（双语言：shell 优先 + python 兜底）、退出码契约（0 过/1 未过/2 自身故障）、金丝雀自测、脚本登记制（持久脚本入池、禁止系统内散放）、fail-open 钩子巡检（bootstrap/audit/cron/pre-commit）；人与 AI 共用同一 CLI，无 AI 可完全人工操作 | 需要复杂校验/巡检/环境体检，新增/修改/退役定制脚本工具，或收编登记散落各处的持久脚本时；写脚本前先 `toolbox spec`，登记用 `toolbox check` |
+| **dev-init** | 新项目/新仓库首次接入 skill 体系的一次性初始化引导 checklist：按序编排 context/ 记忆骨架 → workflow 事实源 → project-local 索引 → 规范 skill → toolbox 项目池 → AGENTS.md 兜底 → 冷启动验收；零规范事实零项目数据，各步薄指针到既有机制 | 新项目接入 / 初始化项目 skill 体系 / 已接入项目补缺时（项目级一次性流程；日常任务归 dev-guide） |
 
 > **脚本登记制（agent-toolbox）**：AI 产出的持久脚本一律经 `toolbox check` 登记入池——跨项目入全局池，项目专属入 `<repo>/scripts/agent-tools/`；禁止散放于家目录/项目根等处（/tmp 一次性分析脚本豁免，用完即弃）。历史散放脚本按「评估 → 合规化 → 入池 → 原址清理」收编，迁移走同一 check 门禁不豁免。流程细节见 agent-toolbox SKILL.md「散乱脚本治理」节。
 
@@ -146,49 +147,23 @@ flowchart TD
 flowchart TD
     S[新会话或重置后] --> R[读 context/CURRENT]
     R -->|epic 有效| M[只读该 epic memory.md：共识 + 断点行]
-    R -->|none 或文件缺失| A[提示 /file 绑定，严禁自行挑活]
+    R -->|none 或文件缺失| A[提示 @file 绑定，严禁自行挑活]
     M --> K[开工：散修挂 misc · 大需求走 dev-guide 流程]
     K --> D[干活：Diff / Bug 结论 / 决策推翻自动落 devlog]
     D --> T{devlog 或 lessons 待归并达 5 条}
     T -->|是| MG[自动双文件归并 + 提示重置窗口]
     T -->|否| E[收尾：断点行刷新为下一步]
     MG --> E
-    E --> X[epic 完结：/done 审计 + 归档 archive]
+    E --> X[epic 完结：@done 审计 + 归档 archive]
 ```
 
 - 恢复口令：发送「继续」或「读 context/CURRENT，开始下一个子任务：<xxx>」，Agent 直接按 memory 开工，不反问。
 - `context/` 随仓库提交 git（CURRENT 为个人指针，已 gitignore）；多机协作需「切换机器前 commit」纪律。
-- misc 是常驻杂项挂靠点：散修日志直接落 `misc/devlog.md`，不切换 CURRENT；misc 内任务连续多轮长成大功能时 `/bind` 转正。
+- misc 是常驻杂项挂靠点：散修日志直接落 `misc/devlog.md`，不切换 CURRENT；misc 内任务连续多轮长成大功能时 `@bind` 转正。
 
 ### 3.2 指令速查（用户手动操作面）
 
-**dev-loop 指令**：
-
-| 指令 | 职责 | 详见 |
-|---|---|---|
-| `/file <名>` / `/bind <名>` | 绑定/切换 epic；切换且旧 epic 有积压时先归并 | dev-loop §3 |
-| `/next [方向]` | 断点规划：报断点或给 ≤3 候选，选定后落盘为断点 | dev-loop §6 |
-| `/remember <事实>` | 决策直写 memory 正文（用户发起即视为确认） | dev-loop §6 |
-| `/status` | 运行态快照：CURRENT/断点/积压计数/memory 行数，≤5 行 | dev-loop §6 |
-| `/merge` | 手动归并：devlog→memory、lessons 追加区→正文 | dev-loop §4 |
-| `/audit` | 十一项质检（账账相符：断点新鲜度/新旧并存/指针抽查/skill 卫生/toolbox 巡检等） | dev-loop §7 |
-| `/verify <epic\|lessons\|all>` | 账实对账：memory 断言逐条对代码现实，三态输出 | dev-loop §7 |
-| `/done` | epic 收尾：强制审计 → memory 提炼 ≤10 行 → 归档 archive | dev-loop §8 |
-| `/help` | 输出指令总表与当前绑定状态（新会话 / 跨 IDE 求助入口） | dev-loop §9 |
-
-> `/done` 对常驻 misc 不适用（misc 永不收尾）；全部指令仅用户显式触发。
-
-**memo-collector 指令**（备忘收集，独立于 dev-loop，仅用户显式触发）：
-
-| 指令 | 职责 | 详见 |
-|---|---|---|
-| `/todo <事项>` | 追加待办（按域归属落节：域内挂 epic 节，散修/跨域挂 misc） | memo-collector §1 |
-| `/todos [域]` | 只读展示待办（带临时编号，可按域过滤） | memo-collector §3 |
-| `/tdone <编号\|关键词>` | 待办完成 → 移入 done.md（记来源域） | memo-collector §2 |
-| `/todo-clean` | 清理待办（列出全量 → 用户勾选 → 批量删除需确认） | memo-collector §3 |
-| `/todo-groom` | 语义洗盘：合并同类项（直接执行）+ 剔除过期项（经确认）；任一节 >10 条时触发点附注建议 | memo-collector §3 |
-
-> 除上表指令外，待办/风险/未验证假设/测试启发的常规收集由 Agent 在**触发点批量落盘**（子任务收尾 / 显式搁置「以后再修」/ 用户指令），完成流转自动执行，严禁逐轮碎写；咒语类信号不落台账，当轮附注建议写入对应 SKILL.md（经确认）。
+全部用户指令（dev-loop / memo-collector / copilot-context）、toolbox CLI、会话口令与触发权限矩阵统一收录于 **`COMMANDS.md`（命令手册）**；流程语义的唯一事实源仍为各 skill 正文对应 §节，toolbox 命令权威口径以 `toolbox <cmd> --help` 为准。「谁在什么时候做什么」的触发纪律分工见 §4.1。
 
 ### 3.3 场景 → 入口速查
 
@@ -197,7 +172,8 @@ flowchart TD
 | 大需求 / 结构性重构 | dev-guide §1 | 七步流 + 三个硬卡点（落点/验证/收尾），缺卡即未完成 |
 | Bug / 复杂排错 | dev-guide §2 | 先读 lessons 正文对照历史规则；同卡点 2 次熔断；收尾做 lesson 判定 |
 | 散修 / 小改动 | dev-loop §3 misc | 不切 CURRENT，日志落 misc/devlog |
-| 记待办 / 收集备忘 / 查积压 | memo-collector | 回复含「待办/注意/风险/未验证假设/咒语」自动收集（咒语→当轮建议写 SKILL.md）；/todos 全量一览；完成自动流转 done.md |
+| 聊天/助理会话跨会话记忆 | copilot-context | 冷启动读 `context/chat/CURRENT`；记忆禁虚构（只引记忆文件）；@forget 遗忘 |
+| 记待办 / 收集备忘 / 查积压 | memo-collector | 回复含「待办/注意/风险/未验证假设/咒语」自动收集（咒语→当轮建议写 SKILL.md）；@todos 全量一览；完成自动流转 done.md |
 | 查后端功能归属 | service-index | 归属表/别名映射 → 行内展开命令 L2；结果禁写回索引 |
 | 查前端功能归属 | index（前端仓库） | 归属表 → `npm run map:features -- <域>` 实时触点 |
 | 写后端代码 | backend-dev | 模板复用 + 标准实现优先；结构与命令查 workflow |
@@ -206,7 +182,7 @@ flowchart TD
 | 终端命令被截断/取消 | workflow | 禁 $ 形式字符串；长内容 write_file 首写 + edit_file 段尾标记续写 |
 | native 构建失败 | native-build §二 | 排查套路按序执行不跳步 |
 | native 运行期崩溃 / 静默失效 | runtime-metadata | javap 验证根因再动手；一轮只改一类变量 |
-| 新项目接入 | project-index | 按 template 建 project-local 索引，只登记域级锚点，禁止一次性铺满 |
+| 新项目接入 / 补缺 | dev-init | 按序 checklist：记忆骨架 → 事实源 → 索引 → toolbox → 验收；索引只登记域级锚点，禁止一次性铺满（机制细节见各步指针出处） |
 | 需要脚本工具 / 环境体检 / 巡检 / 收编散放脚本 | agent-toolbox | 先 `toolbox list` 查现有，无则 `new` → 实现 → `check` 登记；持久脚本禁散放（详见 §3.4） |
 
 ### 3.4 agent-toolbox：全局脚本工具箱（设计原则与使用说明）
@@ -235,27 +211,15 @@ flowchart TD
 6. **金丝雀自证**：guard 类工具（trigger≠manual）必带 `--self-test`，内嵌已知坏样本证明「能抓到坏」，防监控工具静默失效。
 7. **平台不 fork + 双仓库版本控制**：平台差异一律运行时探测，严禁 fork 平台副本文件；`~/.agents/skills`（skill 本体 + 元工具）与 `~/.agents/toolbox`（脚本池运行时）各自纳 git——新机器 clone 两仓库后 `toolbox init` 即完成适配。
 
-**命令面**（`toolbox help` 汇总；`toolbox <cmd> --help` 即该命令手册）：
-
-| 命令 | 职责 | 详见 |
-|---|---|---|
-| `toolbox init` | 初始化运行时（目录/shim/README），新机器适配入口 | `toolbox init --help` |
-| `toolbox new <名>` | 生成合规脚手架（默认 shell；`--lang python` 兜底；头部块 + help/json/self-test 骨架） | `toolbox new --help` |
-| `toolbox check <路径>` | 门禁校验并登记入池；引入新能力需用户确认 | `toolbox check --help` |
-| `toolbox list` | 现场派生工具清单（名称/摘要/trigger/平台） | `toolbox list --help` |
-| `toolbox run-hooks <钩>` | 按 trigger 批量执行；FAIL→exit 1，故障 fail-open | `toolbox run-hooks --help` |
-| `toolbox install-hooks` | 向 Git pre-commit 安装 FAIL 门禁（侵入操作，需确认） | `toolbox install-hooks --help` |
-| `toolbox spec` | 输出脚本编写规范 SSOT 正文 | `toolbox spec` |
-| `toolbox remove <名>` | 退役工具移入 .trash（破坏性，需确认） | `toolbox remove --help` |
-| `toolbox self-test` | 元工具自过自检 | `toolbox self-test` |
+**命令面**：9 个子命令（`init` / `new` / `check` / `list` / `run-hooks` / `install-hooks` / `spec` / `remove` / `self-test`）——语法、参数与退出码契约统一见 `COMMANDS.md` §4；权威口径以 `toolbox <cmd> --help` 为准。
 
 **典型流程**：
 
 - **新增工具**：`toolbox spec` 看规范 → `toolbox new <名>` 出脚手架 → 实现逻辑 → `toolbox check`（经确认入池）→ 使用；
-- **巡检提醒**：会话开场 dev-loop §3 自动跑 `toolbox run-hooks bootstrap --quiet`（exit 0 静默）；`/audit` 第 11 项跑 `audit` 钩——FAIL 按 memo-collector 口径转 `风险` 待办；
+- **巡检提醒**：会话开场 dev-loop §3 自动跑 `toolbox run-hooks bootstrap --quiet`（exit 0 静默）；`@audit` 第 11 项跑 `audit` 钩——FAIL 按 memo-collector 口径转 `风险` 待办；
 - **收编散放脚本**：评估复用价值 → 合规化补头部/help/json/自测 → `toolbox check` 入池 → 原址删除或改一行薄指针。
 
-**现状**（2026-09-16）：试点工具 `env-doctor`（本地运行时环境体检，trigger: manual）；同日 spec 升 v1.1：语言双通道——shell（.sh）一等公民优先，python 兜底，`toolbox new` 默认出 sh 脚手架，shell 门禁含 shebang + `sh -n` 语法检查，manual 类不限时；历史散放脚本已收编 8 项入项目池 `scripts/agent-tools/`（index-lint、docs-index-lint、run-regression、run-e2e、run-native-smoke、run-native-rest、run-jvm-watch、deploy-cloud-run，长任务 --json=预检语义），项目根不再散放持久脚本；`install-hooks` 未安装（决策：不接 pre-commit/profile，按需人工触发）；脚本池与快速上手见 `~/.agents/toolbox/README.md`。
+**现状**（2026-09-19）：试点工具 `env-doctor`（本地运行时环境体检，trigger: bootstrap——会话开场自动体检）；audit 钩挂载 `context-lint`（context 数据面 + skill 指针面机械校验——@audit 的断点/头部/积压/尺寸/孤儿/待办格式与指针锚点存在性各机械项由其代跑，中文数字节号与裸 § 自引用仍人工抽查）；同日 spec 升 v1.1：语言双通道——shell（.sh）一等公民优先，python 兜底，`toolbox new` 默认出 sh 脚手架，shell 门禁含 shebang + `sh -n` 语法检查，manual 类不限时；历史散放脚本已收编 8 项入项目池 `scripts/agent-tools/`（index-lint、docs-index-lint、run-regression、run-e2e、run-native-smoke、run-native-rest、run-jvm-watch、deploy-cloud-run，长任务 --json=预检语义），项目根不再散放持久脚本；`install-hooks` 未安装（决策：不接 pre-commit/profile，按需人工触发）；脚本池与快速上手见 `~/.agents/toolbox/README.md`。
 
 ### 3.5 环境硬约束（workflow 摘要）
 
@@ -271,16 +235,16 @@ flowchart TD
 | 类别 | 内容 |
 |---|---|
 | Agent 自动执行 | 日志追加落盘、≥5 条自动归并、断点刷新、备忘自动收集（含未验证假设/测试启发）、打勾回收与完成流转（memo-collector）、文档联动**提示**（仅提示不擅改）、咒语→skill 进化**建议**（仅建议，经确认写入）、熔断停止、恢复时读 CURRENT/memory |
-| 仅用户显式触发，Agent 严禁自主执行 | `/audit`、`/verify`、`/done`；一切修复经用户确认后落盘 |
-| 用户高频指令 | `/bind` 开工、`/next` 规划下一步、`/remember` 固化聊定的决策、`/status` 快照 |
+| 仅用户显式触发，Agent 严禁自主执行 | `@audit`、`@verify`、`@done`；一切修复经用户确认后落盘 |
+| 用户高频指令 | `@bind` 开工、`@next` 规划下一步、`@remember` 固化聊定的决策、`@status` 快照 |
 
 ### 4.2 日常节奏建议
 
 - **小改直接说**：散修由 misc 自动兜住，无需任何指令；不要为小改动建 epic。
-- **备忘零抄写**：回复中的建议/待办由 memo-collector 自动落 `context/todos.md`（`/todos` 一览、`/todo` 补录、`/tdone` 手动结转），无需手动抄写。
-- **大需求开工即 `/bind`**：拆解交给 `/next`（≤3 候选选定）；全程硬卡点自检；收尾 `/done`（内含强制审计，有 ⚠ 先修复再收尾）。
+- **备忘零抄写**：回复中的建议/待办由 memo-collector 自动落 `context/todos.md`（`@todos` 一览、`@todo` 补录、`@tdone` 手动结转），无需手动抄写。
+- **大需求开工即 `@bind`**：拆解交给 `@next`（≤3 候选选定）；全程硬卡点自检；收尾 `@done`（内含强制审计，有 ⚠ 先修复再收尾）。
 - **窗口管理**：看到自动归并附注（⚙️）后，方便时重置会话；恢复成本 = 一句「继续」。
-- **健康节奏**：多机同步 / 分支切换 / 久别重开后跑 `/audit`；里程碑收尾、lessons 归并出新规则后跑 `/verify`（趁热验真）。
+- **健康节奏**：多机同步 / 分支切换 / 久别重开后跑 `@audit`；里程碑收尾、lessons 归并出新规则后跑 `@verify`（趁热验真）。
 - **改 docs 后**：跑 §八两条 lint + `sh scripts/agent-tools/docs-index-lint.sh`；**前端改码后**：`npx tsc --noEmit` + `npm test`（pretest 自动跑架构护栏）。
 - **git 纪律**：Agent 不擅自 commit / 建分支；`context/` 随功能 PR 一起提交。
 
@@ -288,14 +252,14 @@ flowchart TD
 
 - **版本控制是前提**：`context/` 整目录（除 `CURRENT` 个人指针）必须纳入 git——每次归并与修正都可回溯，这也是多机纪律的基础。
 - **归并事故回滚**：AI 归并（或任何记忆写入）导致 memory.md 质量断崖式下跌（关键决策被总结错、断点丢失、正文失真）时，**严禁让 Agent「尝试自己重写修复」**——直接 `git checkout -- context/<epic>/memory.md` 恢复最近提交版本（lessons.md 同理），再由人工微调补记；存疑时先 `git --no-pager log -p -- context/` 对照历史。
-- **防腐日常**：`/audit` 十一项中的断点新鲜度 / 新旧并存 / 记忆补记审查即防腐检查——多机同步、久别重开、里程碑后跑一轮；怀疑账实不符用 `/verify`，不凭印象改。
+- **防腐日常**：`@audit` 十一项中的断点新鲜度 / 新旧并存 / 记忆补记审查即防腐检查——多机同步、久别重开、里程碑后跑一轮；怀疑账实不符用 `@verify`，不凭印象改。
 
 ### 4.4 skill 治理（新增/修改 skill 时的硬规则）
 
 1. **description 是路由信号非正文**：新建目标 ≤~250 字符、硬顶 550；完备症状清单沉正文 §一，description 只留项目锚点 + 技术栈 + 高频症状关键词。
 2. **事实指针化**：规范类 skill 正文严禁自带易漂移事实（模块结构/领域清单/编译命令/依赖版本/环境限制），一律指针到项目事实源（workflow、项目索引）。
 3. **指针必须可 grep**：有节号用 §，纯命名节用「节名」；写入前核对锚点真实存在；被引用 skill 改节号/节名的当轮，同步所有引用方。
-4. **检测网**：/audit 第 9 项（指针抽查）+ 第 10 项（skill 卫生：事实指针化 + description 预算）+ 第 11 项（toolbox 巡检）兔底。
+4. **检测网**：@audit 第 9 项（指针抽查）+ 第 10 项（skill 卫生：事实指针化 + description 预算）+ 第 11 项（toolbox 巡检）兔底。
 
 ### 4.5 反模式速查
 
@@ -324,3 +288,4 @@ flowchart TD
 | docs/ 文档规范 | stock-calculator-docs |
 | 代码写法模式 | stock-calculator-backend-dev / stock-calculator-frontend-dev |
 | Native 构建期 / 运行期 | stock-calculator-native-build / stock-calculator-native-runtime-metadata |
+| 新项目接入流程 | dev-init |

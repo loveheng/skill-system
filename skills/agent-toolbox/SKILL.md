@@ -34,7 +34,7 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 1. 遇到复杂校验/巡检/环境体检需求：先 `toolbox list` 查现有工具，有则直接用；
 2. 无合适工具且常规工具链低效：`toolbox new <name>` 生成脚手架 → 实现逻辑（守 `toolbox spec`）→ `toolbox check` 登记后使用；
 3. 钩子 FAIL → 按 memo-collector 口径转 `风险` 类待办落 `todos.md`，message 即待办内容；
-4. epic 收尾（/done）：看 `toolbox list` 盘点零使用工具，提议退役（人工确认后 `toolbox remove`）；
+4. epic 收尾（@done）：看 `toolbox list` 盘点零使用工具，提议退役（人工确认后 `toolbox remove`）；
 5. 发现散落各处的持久脚本（家目录/项目根等）或用户要求整理/收编/迁移脚本：按「散乱脚本治理」流程执行。
 
 ## 散乱脚本治理（登记制）
@@ -58,4 +58,5 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 ## 接线（对 dev-loop 的唯一侵入）
 
 - dev-loop §3 开场：`toolbox run-hooks bootstrap --quiet`（exit 0 静默；FAIL/故障不阻塞恢复，仅附一行 ⚠）；
-- dev-loop /audit 第 11 项：`toolbox run-hooks audit --quiet`，FAIL/ERROR 转 ⚠。
+- dev-loop @audit 第 11 项：`toolbox run-hooks audit --quiet`，FAIL/ERROR 转 ⚠；
+- 当前挂载：bootstrap → env-doctor（开场环境体检）；audit → context-lint（context/ 数据面 + skill 指针面机械校验，@audit 机械项代跑；裸跑=逐条明细，--json=单行结论）。
