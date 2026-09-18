@@ -1,6 +1,6 @@
 ---
 name: dev-loop
-description: 无状态极简交互 SOP：Token 管控、Tool 优先落盘、context/CURRENT 绑定自恢复、长期记忆按大功能组织（memory.md + devlog.md；散修/小改动挂靠常驻 misc）、决策洞察档案 decisions.md（@adr，按 epic 分节 + misc，AI 只写不读）、增量日志协议与自动归并重构，配套 9 条管理指令（bind/remember/adr/next/merge/status/audit/verify/done），以及全局护栏（静默容错/资源拦截/2 次熔断/高危确认/静态强约束/契约保护）。所有 Coding 会话的回复格式与日志规约。
+description: 所有编码会话的交互 SOP 底座（回复格式/Token 管控/日志规约）：context/CURRENT 绑定 epic、重置后「继续」按断点恢复、memory/devlog 增量日志与 ≥5 自动归并、@管理指令（bind/remember/adr/next/merge/status/audit/verify/done）、全局护栏（资源拦截/2 次熔断/高危确认/契约保护）。聊天/助理会话归 copilot-context。
 ---
 
 # Skill: Dev-Loop (无状态极简交互 SOP - V3.5)
@@ -93,6 +93,8 @@ last-merge: <YYYY-MM-DD | none>
 3. **SSOT 修正（决策推翻时强制，不依赖 Diff，双重动作）**：当用户显式推翻或废弃既有决策/结论时（即使本轮无任何代码变更）：
    ① **即时生效**：当轮用 Edit/sed 将 `memory.md` 正文中对应旧结论改写为新结论——**修正不等待归并**，消除「重置窗口缺口」，memory 恒为最新共识；
    ② **审计留痕**：向 `context/epics/<大功能名>/devlog.md` 底部追加 `- [YYYY-MM-DD] [SSOT 修正]: 旧结论 <X> 已废弃 ➔ 新结论 <Y>`（计入归并阈值）。
+
+**收尾 Git 指令建议（生成不执行）**：产生 Diff 的轮次收尾时，回复末尾附一段 git 指令建议代码块——基于本轮实际改动文件生成 `git add <文件清单>`（含本轮落盘的 context/ 记忆文件）+ `git commit -m "<一句话说明>"`（措辞参照本轮 devlog 行），块首标注「建议指令，未执行」；**严禁代跑任何 git 写操作**（add/commit/分支/推送一律由用户复制执行）；分支级操作（建分支/合并/切换）仅在用户明示要求时生成；无 Diff 轮次不生成。部署属项目池脚本职责（如 deploy-cloud-run），不在本建议范围。
 
 *(豁免规则：以下轮次**禁止追加任何日志**——① **未产出可留存结论的**纯咨询/排错轮次；② 执行 `@merge`、`@bind` 等协议操作的轮次；③ 除 Lesson / SSOT 修正落盘外，仅维护 `context/` 文档本身的轮次（含日志追加自身产生的写入，防递归记日志）。)*
 

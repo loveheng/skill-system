@@ -246,7 +246,7 @@ flowchart TD
 - **窗口管理**：看到自动归并附注（⚙️）后，方便时重置会话；恢复成本 = 一句「继续」。
 - **健康节奏**：多机同步 / 分支切换 / 久别重开后跑 `@audit`；里程碑收尾、lessons 归并出新规则后跑 `@verify`（趁热验真）。
 - **改 docs 后**：跑 §八两条 lint + `sh scripts/agent-tools/docs-index-lint.sh`；**前端改码后**：`npx tsc --noEmit` + `npm test`（pretest 自动跑架构护栏）。
-- **git 纪律**：Agent 不擅自 commit / 建分支；`context/` 随功能 PR 一起提交。
+- **git 纪律**：Agent 不执行任何 git 写操作（commit/建分支/合并/推送）——收尾只**生成** git 指令建议供人工复制执行（dev-loop §2「收尾 Git 指令建议」）；`context/` 随功能 PR 一起提交。部署不立 skill：执行走项目池脚本（如 deploy-cloud-run），流程/回滚以脚本头部指向的 runbook 为准。
 
 ### 4.3 灾难恢复与记忆防腐
 
