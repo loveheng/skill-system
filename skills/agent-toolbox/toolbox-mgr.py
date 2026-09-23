@@ -598,16 +598,21 @@ def load_param_values():
     return values, used
 
 
-def inject_params(e):
-    """按头部 params: 声明注入环境变量；缺参打印提醒。返回缺参清单。"""
+def inject_params(e, inline=None):
+    """按头部 params: 声明注入环境变量；缺参打印提醒。返回缺参清单。
+    inline：命令行内联 KEY=VALUE（灵活参数），优先级最高，不透传给脚本。"""
+    inline = inline or {}
     declared = e.get("params") or []
+    for k, v in inline.items():
+        os.environ[k] = v
     if not declared:
         return []
     values, _ = load_param_values()
     missing = []
     for k in declared:
-        if k in values:
-            os.environ[k] = values[k]
+        if k in inline or k in values:
+            if k not in inline:
+                os.environ[k] = values[k]
         elif k not in os.environ:
             missing.append(k)
     if missing:
@@ -616,6 +621,7 @@ def inject_params(e):
         print("⚠ [%s] 缺参数: %s" % (e["name"], ", ".join(missing)))
         print("  请在 %s 添加（格式 KEY=value，一行一个；全局配置 %s）"
               % (cfg, PARAMS_FILE))
+        print("  或临时内联: toolbox run %s KEY=value ..." % e["name"])
     return missing
 
 
@@ -651,9 +657,17 @@ def cmd_run(args):
     if not platform_ok(e):
         print("✗ 平台不匹配: %s 需要 platform=%s" % (e["name"], e["platform"]))
         return 2
-    inject_params(e)
+    inline = {}
+    passthrough = []
+    for a in args.tool_args:
+        m = re.match(r"^([A-Z][A-Z0-9_]*)=(.*)$", a, re.S)
+        if m:
+            inline[m.group(1)] = m.group(2)
+        else:
+            passthrough.append(a)
+    inject_params(e, inline)
     t0 = time.monotonic()
-    cmd = interpreter_for(e["file"], detect_lang(e["file"])) + [e["file"]] + args.tool_args
+    cmd = interpreter_for(e["file"], detect_lang(e["file"])) + [e["file"]] + passthrough
     try:
         p = subprocess.run(cmd)
         rc = p.returncode
@@ -1018,6 +1032,9 @@ toolbox 脚本编写规范 v1.4（唯一事实源——由元工具内嵌，任�
     `toolbox run` 运行前自动注入为同名环境变量（已导出的环境变量优先于配置文件）；
     缺参当场打印提醒（不阻塞——工具自身预检仍兜底）。脚本内取参应 env 优先、
     本地兜底（如 .env），与环境变量注入语义一致。
+  - 灵活参数（临时内联）：`toolbox run <工具> KEY=value [其他参数]`——KEY=value
+    形式的实参被元工具识别为参数覆盖（优先级最高，一次性生效不落盘，不透传脚本），
+    其余参数原样透传。适合临时换库口令/换目标等一次性场景；值含空格加引号。
 
 3. 语言细则
   - shell（<name>.sh，优先）：shebang 必须为 #!/bin/sh 或 #!/usr/bin/env bash；
@@ -1194,9 +1211,10 @@ def build_parser():
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_list)
 
-    p = sub.add_parser("run", help="按名称或短别名运行工具（参数原样透传，退出码透传）")
+    p = sub.add_parser("run", help="按名称或短别名运行工具（KEY=value 内联覆盖参数，其余原样透传）")
     p.add_argument("tool", help="工具名称或头部 alias 字段中的短别名")
-    p.add_argument("tool_args", nargs="*", help="透传给工具的参数")
+    p.add_argument("tool_args", nargs="*",
+                   help="KEY=value 为参数覆盖（不透传）；其余参数原样透传给工具")
     p.set_defaults(fn=cmd_run)
 
     p = sub.add_parser("run-hooks", help="执行某钩子下全部工具")
