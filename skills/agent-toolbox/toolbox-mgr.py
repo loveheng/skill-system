@@ -38,7 +38,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "1.2"
+VERSION = "1.3"
 HOME = Path.home()
 TOOLBOX_DIR = HOME / ".agents" / "toolbox"
 SCRIPTS_DIR = TOOLBOX_DIR / "scripts"
@@ -160,6 +160,11 @@ def validate_meta(meta):
     name = meta.get("name")
     if name is not None and not NAME_RE.match(name):
         problems.append("name 非法（小写字母开头，小写字母/数字/连字符）: %s" % name)
+    raw_alias = meta.get("alias")
+    if raw_alias is not None:
+        for a in [x.strip() for x in raw_alias.split(",") if x.strip()]:
+            if not NAME_RE.match(a):
+                problems.append("alias 非法（同 name 规则，逗号分隔）: %s" % a)
     return problems
 
 
@@ -300,6 +305,8 @@ def collect():
             e = {"name": name, "file": str(f), "scope": scope,
                  "trigger": meta.get("trigger", "?"),
                  "platform": meta.get("platform", "any"),
+                 "alias": [x.strip() for x in (meta.get("alias") or "").split(",")
+                           if x.strip()],
                  "summary": meta.get("summary", ""),
                  "problems": problems, "overridden": False}
             prev = index.get(name)
@@ -388,7 +395,7 @@ def cmd_list(args):
         slim = []
         for e in entries:
             d = {k: e[k] for k in ("name", "scope", "trigger", "platform",
-                                   "summary", "problems", "file")}
+                                   "alias", "summary", "problems", "file")}
             d["last_run"] = last_runs.get(e["name"])
             slim.append(d)
         print(json.dumps(slim, ensure_ascii=False, indent=2))
@@ -403,6 +410,8 @@ def cmd_list(args):
             extra += "  (被项目池覆盖)"
         if e["problems"]:
             extra += "  ⚠ " + e["problems"][0]
+        if e["alias"]:
+            extra += "  (别名: %s)" % ",".join(e["alias"])
         rows.append((e["name"], e["scope"], e["trigger"],
                      last_runs.get(e["name"], "-"), e["summary"] + extra))
     if sys.stdout.isatty():
@@ -556,6 +565,53 @@ def cmd_run_hooks(args):
     if args.notify and bad:
         Adapter().notify("toolbox %s: %d 项异常" % (hook, len(bad)))
     return 1 if any(r["status"] == "FAIL" for r in results) else 0
+
+# ---------- run：按名称或短别名执行工具（直连也计台账） ----------
+
+def resolve_tool(key):
+    """按 名称 > 别名 解析工具；重名/歧义返回 None 并打印原因。"""
+    entries = [e for e in collect() if not e["overridden"]]
+    exact = [e for e in entries if e["name"] == key]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        print("✗ 工具名重复: %s（项目池覆盖异常，请检查工具池）" % key)
+        return None
+    hits = [e for e in entries if key in e["alias"]]
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:
+        print("✗ 别名歧义: %s → %s" % (key, ", ".join(
+            "%s/%s" % (h["scope"], h["name"]) for h in hits)))
+        return None
+    print("✗ 未找到工具或别名: %s（toolbox list 查看）" % key)
+    return None
+
+
+def cmd_run(args):
+    key = args.tool
+    e = resolve_tool(key)
+    if e is None:
+        return 2
+    if e["problems"]:
+        print("✗ 工具不合规，禁止运行: [%s] %s\n  - %s"
+              % (e["scope"], e["name"], "; ".join(e["problems"][:3])))
+        return 2
+    if not platform_ok(e):
+        print("✗ 平台不匹配: %s 需要 platform=%s" % (e["name"], e["platform"]))
+        return 2
+    t0 = time.monotonic()
+    cmd = interpreter_for(e["file"], detect_lang(e["file"])) + [e["file"]] + args.tool_args
+    try:
+        p = subprocess.run(cmd)
+        rc = p.returncode
+    except OSError as err:
+        print("✗ 启动失败: %s" % err)
+        rc = 127
+    record_usage(e["name"], e["scope"], rc,
+                 int((time.monotonic() - t0) * 1000), "run")
+    return rc if 0 <= rc <= 255 else (1 if rc > 0 else 2)
+
 
 # ---------- install-hooks：幂等标记块接线 / 可逆卸载 ----------
 
@@ -867,7 +923,7 @@ def cmd_new(args):
 # ---------- spec：脚本编写规范（唯一事实源，内嵌本文件） ----------
 
 SPEC_TEXT = '''\
-toolbox 脚本编写规范 v1.2（唯一事实源——由元工具内嵌，任何副本不具效力）
+toolbox 脚本编写规范 v1.3（唯一事实源——由元工具内嵌，任何副本不具效力）
 
 0. 宪法
   - 语言双通道，shell 优先：shell（POSIX sh / bash）为一等公民，优先实现；
@@ -900,7 +956,10 @@ toolbox 脚本编写规范 v1.2（唯一事实源——由元工具内嵌，任�
   - 退出码契约：0=通过 1=检查未通过 2=自身故障（--json 时退出码必须与 status 一致）；
   - 长任务（manual 部署/回归类）的 --json 语义 = 快速预检结论，不执行任务本体；
     任务本体由裸跑触发，且必须在 usage 里写明两者区别；
-  - guard 类（trigger != manual）必带 --self-test 金丝雀：内嵌已知坏样本，证明“能抓到坏”。
+  - guard 类（trigger != manual）必带 --self-test 金丝雀：内嵌已知坏样本，证明“能抓到坏”；
+  - 短别名（可选）：头部块加 `alias: a|b|c`（逗号分隔，同 name 命名规则），
+    经 `toolbox run <别名> [参数...]` 运行——解析、透传、计台账均由元工具承担；
+    裸调脚本文件仍合法（别名只是附加通道，非强制）。
 
 3. 语言细则
   - shell（<name>.sh，优先）：shebang 必须为 #!/bin/sh 或 #!/usr/bin/env bash；
@@ -996,6 +1055,14 @@ def cmd_self_test(args):
                              "summary": "x", "trigger": "nope"})
         if not any("trigger" in x for x in vpr):
             fails.append("validate_meta 未拒绝非法 trigger")
+        vok = validate_meta({"format": "v1", "name": "demo-tool", "summary": "x",
+                             "trigger": "audit", "alias": "dt, demo-t"})
+        if vok:
+            fails.append("validate_meta 误拒合法 alias: %r" % vok)
+        vbad = validate_meta({"format": "v1", "name": "demo-tool", "summary": "x",
+                              "trigger": "audit", "alias": "Bad_Alias"})
+        if not any("alias" in x for x in vbad):
+            fails.append("validate_meta 未拒绝非法 alias")
         if any("platform" in x for x in validate_meta(
                 {"format": "v1", "name": "demo-tool", "summary": "x",
                  "trigger": "audit", "platform": "unix"})):
@@ -1060,6 +1127,11 @@ def build_parser():
     p = sub.add_parser("list", help="派生工具清单")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_list)
+
+    p = sub.add_parser("run", help="按名称或短别名运行工具（参数原样透传，退出码透传）")
+    p.add_argument("tool", help="工具名称或头部 alias 字段中的短别名")
+    p.add_argument("tool_args", nargs="*", help="透传给工具的参数")
+    p.set_defaults(fn=cmd_run)
 
     p = sub.add_parser("run-hooks", help="执行某钩子下全部工具")
     p.add_argument("hook")
