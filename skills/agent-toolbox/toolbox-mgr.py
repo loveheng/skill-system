@@ -38,12 +38,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "1.3"
+VERSION = "1.4"
 HOME = Path.home()
 TOOLBOX_DIR = HOME / ".agents" / "toolbox"
 SCRIPTS_DIR = TOOLBOX_DIR / "scripts"
 STATE_DIR = TOOLBOX_DIR / "state"
 LEDGER_FILE = STATE_DIR / "usage-ledger.jsonl"
+PARAMS_FILE = TOOLBOX_DIR / "params.env"          # 全局参数配置（手工维护）
+PROJECT_PARAMS_NAME = ".toolbox.env"              # 项目参数配置（<repo>/.toolbox.env，项目覆盖全局）
 TRASH_DIR = TOOLBOX_DIR / ".trash"
 MGR_PATH = Path(__file__).resolve()
 MARKER_BEGIN = "# >>> toolbox-mgr >>>"
@@ -165,6 +167,11 @@ def validate_meta(meta):
         for a in [x.strip() for x in raw_alias.split(",") if x.strip()]:
             if not NAME_RE.match(a):
                 problems.append("alias 非法（同 name 规则，逗号分隔）: %s" % a)
+    raw_params = meta.get("params")
+    if raw_params is not None:
+        for k in [x.strip() for x in raw_params.split(",") if x.strip()]:
+            if not re.match(r"^[A-Z][A-Z0-9_]*$", k):
+                problems.append("params 非法（大写字母/数字/下划线，逗号分隔）: %s" % k)
     return problems
 
 
@@ -307,6 +314,8 @@ def collect():
                  "platform": meta.get("platform", "any"),
                  "alias": [x.strip() for x in (meta.get("alias") or "").split(",")
                            if x.strip()],
+                 "params": [x.strip() for x in (meta.get("params") or "").split(",")
+                            if x.strip()],
                  "summary": meta.get("summary", ""),
                  "problems": problems, "overridden": False}
             prev = index.get(name)
@@ -566,7 +575,49 @@ def cmd_run_hooks(args):
         Adapter().notify("toolbox %s: %d 项异常" % (hook, len(bad)))
     return 1 if any(r["status"] == "FAIL" for r in results) else 0
 
-# ---------- run：按名称或短别名执行工具（直连也计台账） ----------
+# ---------- run：按名称或短别名执行工具（参数注入 + 缺参提醒 + 台账） ----------
+
+def load_param_values():
+    """合并全局 params.env 与项目 .toolbox.env（项目覆盖全局，存在即用含空值）。
+    返回 (values, file_used)；文件坏行静默跳过，故障绝不阻塞工具执行。"""
+    values, used = {}, []
+    pd = find_repo_root(Path.cwd())
+    for f in ([PARAMS_FILE] + ([pd / PROJECT_PARAMS_NAME] if pd else [])):
+        if not f.is_file():
+            continue
+        try:
+            for line in f.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                values[k.strip()] = v.strip()
+            used.append(str(f))
+        except OSError:
+            pass
+    return values, used
+
+
+def inject_params(e):
+    """按头部 params: 声明注入环境变量；缺参打印提醒。返回缺参清单。"""
+    declared = e.get("params") or []
+    if not declared:
+        return []
+    values, _ = load_param_values()
+    missing = []
+    for k in declared:
+        if k in values:
+            os.environ[k] = values[k]
+        elif k not in os.environ:
+            missing.append(k)
+    if missing:
+        pd = find_repo_root(Path.cwd())
+        cfg = (str(pd / PROJECT_PARAMS_NAME) if pd else str(PARAMS_FILE))
+        print("⚠ [%s] 缺参数: %s" % (e["name"], ", ".join(missing)))
+        print("  请在 %s 添加（格式 KEY=value，一行一个；全局配置 %s）"
+              % (cfg, PARAMS_FILE))
+    return missing
+
 
 def resolve_tool(key):
     """按 名称 > 别名 解析工具；重名/歧义返回 None 并打印原因。"""
@@ -600,6 +651,7 @@ def cmd_run(args):
     if not platform_ok(e):
         print("✗ 平台不匹配: %s 需要 platform=%s" % (e["name"], e["platform"]))
         return 2
+    inject_params(e)
     t0 = time.monotonic()
     cmd = interpreter_for(e["file"], detect_lang(e["file"])) + [e["file"]] + args.tool_args
     try:
@@ -923,7 +975,7 @@ def cmd_new(args):
 # ---------- spec：脚本编写规范（唯一事实源，内嵌本文件） ----------
 
 SPEC_TEXT = '''\
-toolbox 脚本编写规范 v1.3（唯一事实源——由元工具内嵌，任何副本不具效力）
+toolbox 脚本编写规范 v1.4（唯一事实源——由元工具内嵌，任何副本不具效力）
 
 0. 宪法
   - 语言双通道，shell 优先：shell（POSIX sh / bash）为一等公民，优先实现；
@@ -960,6 +1012,12 @@ toolbox 脚本编写规范 v1.3（唯一事实源——由元工具内嵌，任�
   - 短别名（可选）：头部块加 `alias: a|b|c`（逗号分隔，同 name 命名规则），
     经 `toolbox run <别名> [参数...]` 运行——解析、透传、计台账均由元工具承担；
     裸调脚本文件仍合法（别名只是附加通道，非强制）。
+  - 参数声明（可选）：头部块加 `params: KEY1,KEY2`（大写/数字/下划线，逗号分隔），
+    声明工具依赖的配置参数。参数值集中维护于全局 ~/.agents/toolbox/params.env 与
+    项目 <repo>/.toolbox.env（KEY=value 一行一个，项目覆盖全局；手工添加，禁入 git）。
+    `toolbox run` 运行前自动注入为同名环境变量（已导出的环境变量优先于配置文件）；
+    缺参当场打印提醒（不阻塞——工具自身预检仍兜底）。脚本内取参应 env 优先、
+    本地兜底（如 .env），与环境变量注入语义一致。
 
 3. 语言细则
   - shell（<name>.sh，优先）：shebang 必须为 #!/bin/sh 或 #!/usr/bin/env bash；
@@ -1063,6 +1121,14 @@ def cmd_self_test(args):
                               "trigger": "audit", "alias": "Bad_Alias"})
         if not any("alias" in x for x in vbad):
             fails.append("validate_meta 未拒绝非法 alias")
+        pok = validate_meta({"format": "v1", "name": "demo-tool", "summary": "x",
+                             "trigger": "audit", "params": "POSTGRES_PASS,RABBIT_USER"})
+        if pok:
+            fails.append("validate_meta 误拒合法 params: %r" % pok)
+        pbad = validate_meta({"format": "v1", "name": "demo-tool", "summary": "x",
+                              "trigger": "audit", "params": "bad-key"})
+        if not any("params" in x for x in pbad):
+            fails.append("validate_meta 未拒绝非法 params")
         if any("platform" in x for x in validate_meta(
                 {"format": "v1", "name": "demo-tool", "summary": "x",
                  "trigger": "audit", "platform": "unix"})):
