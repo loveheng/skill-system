@@ -19,6 +19,7 @@ docs/ 按功能域切分子目录，新文档严禁在根目录平铺（README.m
 | custom-stats/ | 自定义统计（AI 生成代码） |
 | news-search/ | 资讯搜索 |
 | ai-pipeline/ | AI 管道（公告 RAG / CLS 向量 / OCR-LLM） |
+| mcp/ | MCP 服务（股票指标计算 + 经典书籍知识检索，独立模块） |
 | architecture/ | 跨域架构决策（模块拆分、拉取循环、数据源接入、测试计划） |
 | deploy/ | 部署与运维手册/实录 |
 
