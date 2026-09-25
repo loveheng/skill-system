@@ -181,6 +181,11 @@ def validate_meta(meta):
     raw_cat = meta.get("cat")
     if raw_cat is not None and not NAME_RE.match(raw_cat):
         problems.append("cat 非法（同 name 规则，单个类别）: %s" % raw_cat)
+    raw_after = meta.get("after")
+    if raw_after is not None:
+        for a in [x.strip() for x in raw_after.split(",") if x.strip()]:
+            if not NAME_RE.match(a):
+                problems.append("after 非法（工具名，逗号分隔）: %s" % a)
     return problems
 
 
@@ -328,6 +333,8 @@ def collect():
                  "verbs": [x.strip() for x in (meta.get("verbs") or "").split(",")
                            if x.strip()],
                  "cat": meta.get("cat") or "",
+                 "after": [x.strip() for x in (meta.get("after") or "").split(",")
+                           if x.strip()],
                  "summary": meta.get("summary", ""),
                  "problems": problems, "overridden": False}
             prev = index.get(name)
@@ -418,7 +425,7 @@ def cmd_list(args):
         slim = []
         for e in entries:
             d = {k: e[k] for k in ("name", "scope", "trigger", "platform",
-                                   "alias", "verbs", "cat", "summary", "problems", "file")}
+                                   "alias", "verbs", "cat", "after", "summary", "problems", "file")}
             d["last_run"] = last_runs.get(e["name"])
             slim.append(d)
         print(json.dumps(slim, ensure_ascii=False, indent=2))
@@ -463,14 +470,8 @@ def cmd_list(args):
     return 0
 
 
-def cmd_check(args):
-    src = Path(args.path).expanduser().resolve()
-    if not src.is_file():
-        print("✗ 文件不存在: %s" % src)
-        return 2
-    if src.suffix not in (".py", ".sh"):
-        print("✗ 仅支持 .py / .sh 脚本: %s" % src.name)
-        return 1
+def validate_script(src):
+    """头部/静态门禁（propose 与 check 共用）：返回 problems 列表。"""
     lang = detect_lang(src)
     meta, problems = parse_header(src)
     problems += validate_meta(meta)
@@ -490,11 +491,147 @@ def cmd_check(args):
             rc, _, err = run_cmd(interpreter_for(src, lang) + ["-n", str(src)], 15)
             if rc != 0:
                 problems.append("shell 语法检查未通过(-n): %s" % (err or "").strip()[:200])
+    return problems
+
+
+# ---------- recent：usage-ledger 反哺（会话恢复时注入近期工具摘要） ----------
+
+def cmd_recent(args):
+    """从使用台账派生近期工具摘要：AI 断点恢复/新会话开局跑一次，
+    直接知道该用哪些工具，不用重新发现。"""
+    try:
+        recs = [json.loads(l) for l in LEDGER_FILE.read_text(
+            encoding="utf-8").splitlines() if l.strip()]
+    except (OSError, ValueError):
+        recs = []
+    if not recs:
+        print("(空) 使用台账暂无记录。工具经 toolbox run 调用后自动记账。")
+        return 0
+    limit = args.n
+    recs = recs[-200:]
+    from collections import Counter
+    cnt = Counter(r["name"] for r in recs)
+    latest = {}
+    for r in recs:
+        latest[r["name"]] = r["ts"]
+    names = sorted(cnt, key=lambda n: latest[n], reverse=True)[:limit]
+    print("近期工具使用（近 %d 条流水，按最近使用排序）:" % len(recs))
+    for n in names:
+        print("  %-26s %3d 次  最近 %s" % (n, cnt[n], latest[n]))
+    print("# 提示: 高频（>=3 次）裸命令若不在池中，按高频收敛条款提议入池（toolbox propose）")
+    return 0
+
+
+# ---------- propose/approve：提案队列（高频收敛不打断执行流） ----------
+
+PROPOSALS_FILE = STATE_DIR / "proposals.json"
+
+
+def load_proposals():
+    try:
+        return json.loads(PROPOSALS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+
+def save_proposals(items):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    PROPOSALS_FILE.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def cmd_propose(args):
+    """AI 把待收敛脚本写入提案队列（先过静态门禁），等人批量 approve。"""
+    src = Path(args.path).expanduser().resolve()
+    if not src.is_file():
+        print("✗ 文件不存在: %s" % src)
+        return 2
+    if src.suffix not in (".py", ".sh"):
+        print("✗ 仅支持 .py / .sh 脚本: %s" % src.name)
+        return 1
+    problems = validate_script(src)
+    meta, _ = parse_header(src)
+    if meta.get("name") and any(
+            e["name"] == meta["name"] for e in collect() if not e["overridden"]):
+        print("ℹ 同名工具已在池中: %s（提案仅用于新工具；更新用 toolbox check --force）"
+              % meta["name"])
+        return 1
+    if problems:
+        print("✗ 静态门禁未通过，不入提案队列（登记门禁不豁免）:")
+        for p in problems:
+            print("  - %s" % p)
+        return 1
+    items = load_proposals()
+    if any(i.get("file") == str(src) for i in items):
+        print("ℹ 已在提案队列: %s（toolbox approve 查看）" % src.name)
+        return 0
+    items.append({"ts": datetime.now().isoformat(timespec="seconds"),
+                  "file": str(src), "name": meta.get("name") or src.stem,
+                  "summary": meta.get("summary", ""),
+                  "scope": "project" if find_repo_root(src) else "global",
+                  "cat": meta.get("cat", "")})
+    save_proposals(items)
+    print("✓ 已入提案队列（%d 项待审）: %s — %s" % (
+        len(items), src.name, meta.get("summary", "")))
+    print("  审批: toolbox approve 逐项查看并批量登记")
+    return 0
+
+
+def cmd_approve(args):
+    """人工批量审批提案：--all 全收，--name <名> 指定收，默认仅列队。"""
+    items = load_proposals()
+    if not items:
+        print("(空) 提案队列为空。AI 收敛高频脚本用 toolbox propose <path> 入队。")
+        return 0
+    if not (args.all or args.name):
+        print("提案队列（%d 项待审）——toolbox approve --all 全收 / --name <名> 指定收:"
+              % len(items))
+        for i, it in enumerate(items, 1):
+            print("  %d. [%s/%s] %s — %s" % (
+                i, it.get("scope"), it.get("cat") or "-", it.get("name"),
+                it.get("summary", "")))
+            print("     %s" % it.get("file"))
+        return 0
+    taken, rest = [], []
+    for it in items:
+        if args.all or it.get("name") == args.name:
+            taken.append(it)
+        else:
+            rest.append(it)
+    if not taken:
+        print("✗ 队列中无匹配项（--name %s）" % args.name)
+        return 1
+    ok, failed = 0, []
+    for it in taken:
+        ns = argparse.Namespace(path=it["file"], scope=it.get("scope", "project"),
+                                force=False)
+        rc = cmd_check(ns)
+        if rc == 0:
+            ok += 1
+        else:
+            failed.append(it)  # 登记失败保留在队列待修
+    save_proposals(rest + failed)
+    print("审批完成: %d 登记 / %d 失败；队列剩余 %d 项" % (
+        ok, len(failed), len(rest) + len(failed)))
+    return 0 if not failed else 1
+
+
+def cmd_check(args):
+    src = Path(args.path).expanduser().resolve()
+    if not src.is_file():
+        print("✗ 文件不存在: %s" % src)
+        return 2
+    if src.suffix not in (".py", ".sh"):
+        print("✗ 仅支持 .py / .sh 脚本: %s" % src.name)
+        return 1
+    problems = validate_script(src)
     if problems:
         print("✗ 头部/静态检查未通过:")
         for p in problems:
             print("  - %s" % p)
         return 1
+    lang = detect_lang(src)
+    meta, _ = parse_header(src)
     rc, out, err = run_cmd(interpreter_for(src, lang) + [str(src), "--help"], 15)
     if rc != 0:
         print("✗ --help 退出码 %d（argparse 必须实现标准 --help）\n%s"
@@ -526,13 +663,18 @@ def cmd_check(args):
         d = SCRIPTS_DIR
     d.mkdir(parents=True, exist_ok=True)
     dest = d / src.name
+    if dest.resolve() == src.resolve():
+        print("✗ 该脚本已在工具池内: %s（登记只接受池外脚本；改完后跑 `toolbox run %s --self-test` 验证即可，"
+              "重登记请 `toolbox remove %s` 后从池外再 check）" % (dest, meta["name"], meta["name"]))
+        return 2
     if dest.exists() and not args.force:
         print("✗ 目标已存在: %s（覆盖用 --force，退役用 toolbox remove %s）"
               % (dest, meta["name"]))
         return 1
     if dest.exists():
         dest.unlink()
-    shutil.move(str(src), str(dest))
+    if dest.resolve() != src.resolve():
+        shutil.move(str(src), str(dest))
     if lang == "shell":
         dest.chmod(0o755)
     print("✓ 已登记: [%s] %s → %s" % (scope, meta["name"], dest))
@@ -667,8 +809,81 @@ def resolve_tool(key):
         print("✗ 别名歧义: %s → %s" % (key, ", ".join(
             "%s/%s" % (h["scope"], h["name"]) for h in hits)))
         return None
-    print("✗ 未找到工具或别名: %s（toolbox list 查看）" % key)
-    return None
+
+
+# ---------- suggest：上下文感知推荐（git 变更 → 类别/关键词 → 工具建议） ----------
+
+CAT_HINTS = {
+    "test": ("测试", "验证", "冒烟", "回归", "e2e", "test", "smoke"),
+    "build": ("编译", "构建", "build", "native", "graalvm", "metadata"),
+    "deploy": ("部署", "发布", "deploy", "docker", "compose", "cloud-run"),
+    "env": ("环境", "体检", "doctor", "env"),
+    "ops": ("起停", "启动", "停止", "进程", "运行中", "运行", "ops"),
+    "docs": ("文档", "索引", "docs", "readme", "md"),
+}
+
+
+def cmd_suggest(args):
+    """读 git 状态与最近变更文件，匹配类别关键词，输出建议工具清单。
+    供 AI 开局跑一次代替盲查——检测不到上下文时退化为按类别全量列示。"""
+    root = find_repo_root(Path.cwd())
+    changed = []
+    if root:
+        try:
+            out = subprocess.run(["git", "-C", str(root), "status", "--porcelain"],
+                                 capture_output=True, text=True, timeout=5)
+            changed = [ln[3:].strip() for ln in (out.stdout or "").splitlines() if ln.strip()]
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    entries = [e for e in collect() if not e["overridden"] and not e["problems"]]
+    if not entries:
+        print("(空) 工具池为空，无建议。")
+        return 0
+    blob = " ".join(changed).lower()
+    cats = []
+    for cat, kws in CAT_HINTS.items():
+        if any(k in blob for k in kws):
+            cats.append(cat)
+    if args.cat:
+        cats = [args.cat]
+    elif cats:
+        print("# git 变更 %d 处，推断类别: %s" % (len(changed), ",".join(cats)))
+    else:
+        print("# git 变更 %d 处，未推断出类别——列出全部（可用 --cat <类别> 收窄）" % len(changed))
+        cats = [e["cat"] for e in entries if e["cat"]] + [""]
+    seen, lines = set(), []
+    for cat in dict.fromkeys(cats):
+        for e in entries:
+            if cat and e["cat"] != cat:
+                continue
+            if e["name"] in seen:
+                continue
+            seen.add(e["name"])
+            verb = "toolbox stop|status %s" % e["alias"][0] if (e["verbs"] and e["alias"]) else ""
+            lines.append("  %-28s %s %s" % (
+                e["name"], e["summary"],
+                ("[服务型: run/%s]" % "/".join(v for v in e["verbs"] if v != "run")) if e["verbs"] else ""))
+            if verb:
+                lines.append("    %-28s %s" % ("", verb))
+    print("\n".join(lines) if lines else "(空) 该类别暂无工具。")
+    print("# 调用: toolbox run <名|别名> [args...]；预检: 加 --json")
+    return 0
+
+
+def _execute_tool(e, passthrough):
+    """执行单个工具（含参数注入与台账），返回退出码。"""
+    inject_params(e)
+    t0 = time.monotonic()
+    cmd = interpreter_for(e["file"], detect_lang(e["file"])) + [e["file"]] + passthrough
+    try:
+        p = subprocess.run(cmd)
+        rc = p.returncode
+    except OSError as err:
+        print("✗ 启动失败: %s" % err)
+        rc = 127
+    record_usage(e["name"], e["scope"], rc,
+                 int((time.monotonic() - t0) * 1000), "run")
+    return rc if 0 <= rc <= 255 else (1 if rc > 0 else 2)
 
 
 def cmd_run(args):
@@ -706,7 +921,21 @@ def cmd_run(args):
         rc = 127
     record_usage(e["name"], e["scope"], rc,
                  int((time.monotonic() - t0) * 1000), "run")
-    return rc if 0 <= rc <= 255 else (1 if rc > 0 else 2)
+    final_rc = rc if 0 <= rc <= 255 else (1 if rc > 0 else 2)
+    # --chain：本工具成功后依次执行头部 after: 声明的后续工具（失败即中断）
+    if getattr(args, "chain", False) and final_rc == 0 and e["after"]:
+        print("# chain: %s → %s" % (e["name"], ",".join(e["after"])))
+        for nxt in e["after"]:
+            ne = resolve_tool(nxt)
+            if ne is None or ne["problems"] or not platform_ok(ne):
+                print("✗ chain 中断: 后续工具不可用: %s" % nxt)
+                return 2
+            print("# chain: 运行 %s" % nxt)
+            final_rc = _execute_tool(ne, [])
+            if final_rc != 0:
+                print("✗ chain 中断于 %s（exit %d）" % (nxt, final_rc))
+                break
+    return final_rc
 
 
 # ---------- install-hooks：幂等标记块接线 / 可逆卸载 ----------
@@ -841,11 +1070,32 @@ README_TMPL = """# toolbox — 全局脚本工具箱
 项目池: <repo>/scripts/agent-tools/（同名覆盖全局）
 """
 
+PROJECT_README_TMPL = """# scripts/agent-tools — 项目专属工具池
+
+本目录是**项目池**：与具体仓库强相关的持久脚本放这里，随仓库版本化；跨项目通用脚本放全局池
+（~/.agents/toolbox/scripts/）。同名工具项目池覆盖全局池。规范与命令口径见 `toolbox spec`。
+
+## 常用
+  toolbox list                  看当前可用工具（含全局池与项目池）
+  toolbox new <name>            生成脚手架（默认项目池；--scope global 入全局池）
+  toolbox check <path>          合规校验并登记入池（门禁：头部块/--help/--json/--self-test）
+  toolbox run <工具|别名>       运行（KEY=value 可内联覆盖参数）
+  toolbox remove <name>         退役 → 全局池 .trash/
+
+## 纪律
+  - 持久脚本一律入池，**禁止散放在仓库根或家目录**（/tmp 一次性脚本豁免）
+  - 新工具首次登记 = 引入新能力，需用户确认
+  - guard 类（trigger≠manual）必须带 --self-test 金丝雀
+  - 已有散放脚本按 agent-toolbox「散乱脚本治理」收编：评估 → 合规化 → check 入池 → 原址清理
+"""
+
 
 def cmd_init(args):
     for d in (TOOLBOX_DIR, SCRIPTS_DIR, STATE_DIR, TRASH_DIR):
         d.mkdir(parents=True, exist_ok=True)
-    (TOOLBOX_DIR / "README.md").write_text(README_TMPL, encoding="utf-8")
+    rp = TOOLBOX_DIR / "README.md"
+    if not rp.exists():          # 幂等：已存在则不覆盖（README 含人工维护的工具清单，覆盖即丢内容）
+        rp.write_text(README_TMPL, encoding="utf-8")
     shim = install_shim()
     print("✓ 全局池: %s" % TOOLBOX_DIR)
     print("✓ shim: %s" % shim)
@@ -855,7 +1105,10 @@ def cmd_init(args):
             print("✗ 当前不在 git 仓库内，跳过项目池")
         else:
             d.mkdir(parents=True, exist_ok=True)
-            print("✓ 项目池: %s" % d)
+            rp = d / "README.md"
+            if not rp.exists():
+                rp.write_text(PROJECT_README_TMPL, encoding="utf-8")
+            print("✓ 项目池: %s（README 占位已就位，空目录亦可入 git）" % d)
     print("下一步: toolbox spec 查看规范；toolbox new <name> 创建第一个工具")
     return 0
 
@@ -1047,12 +1300,25 @@ toolbox 脚本编写规范 v1.5（唯一事实源——由元工具内嵌，任�
 
 2. 必须实现（与语言无关）
   - 标准 --help（shell 用 usage() + cat <<EOF 实现，退出码 0）；
-  - --json：仅输出一行 JSON 结论 {"status":"OK|FAIL","severity":"info|warn|error","message":"..."}
-    （shell 用 printf 实现；message 内禁双引号）；
+  - --json：仅输出一行 JSON 契约结论（硬契约，AI 解析依赖此格式）：
+    {"status":"OK|FAIL","severity":"info|warn|error","message":"...","remedy":"..."}
+    （shell 用 printf 实现；message/remedy 内禁双引号；remedy 可选——FAIL 时强烈建议
+    给出修复动作指向（命令或步骤），让消费方拿到报错即拿到修复路径；OK 时省略）；
   - 退出码契约：0=通过 1=检查未通过 2=自身故障（--json 时退出码必须与 status 一致）；
   - 长任务（manual 部署/回归类）的 --json 语义 = 快速预检结论，不执行任务本体；
     任务本体由裸跑触发，且必须在 usage 里写明两者区别；
-  - guard 类（trigger != manual）必带 --self-test 金丝雀：内嵌已知坏样本，证明“能抓到坏”；
+  - 裸跑失败输出也应带 remedy 提示行（惯例前缀 "[remedy] "）：已知失败模式匹配后
+    打印修复命令，让 AI 省一轮探查（如启动脚本诊断端口占用/依赖服务未起）；
+  - 危险操作宜提供 --dry-run（-n）干跑惯例：stop/restart/remove/deploy 类操作
+    先预览将做什么（[dry-run] 前缀），不动真目标——AI 大范围自主执行前应先干跑；
+  - 工具组合链（可选，v1.5）：头部块加 `after: 工具名,工具名`（逗号分隔）声明
+    成功后衔接的工具；`toolbox run <工具> --chain` 在本工具 exit 0 后依次执行
+    （无参数透传，后续工具自含参数；任一失败即中断并透传退出码）；
+  - 元工具辅助命令（AI 嵌入执行流程）：
+    `toolbox suggest` 读 git 变更推断类别列建议工具（开局跑一次代替盲查）；
+    `toolbox propose <path>` 脚本入提案队列（过静态门禁，同名在池即拒）；
+    `toolbox approve [--all|--name <名>]` 人工批量审批（完整 check 门禁 + 搬运）；
+    `toolbox recent [-n N]` 近期使用工具摘要（断点恢复/新会话开局注入）。  - guard 类（trigger != manual）必带 --self-test 金丝雀：内嵌已知坏样本，证明“能抓到坏”；
   - 短别名（可选）：头部块加 `alias: a|b|c`（逗号分隔，同 name 命名规则），
     经 `toolbox run <别名> [参数...]` 运行——解析、透传、计台账均由元工具承担；
     裸调脚本文件仍合法（别名只是附加通道，非强制）。
@@ -1261,8 +1527,27 @@ def build_parser():
     p.add_argument("--cat", help="按类别过滤（头部 cat 字段，如 build/test/deploy/env/ops）")
     p.set_defaults(fn=cmd_list)
 
+    p = sub.add_parser("suggest", help="上下文感知推荐（读 git 变更推断类别，列出建议工具）")
+    p.add_argument("--cat", help="强制指定类别（覆盖推断）")
+    p.set_defaults(fn=cmd_suggest)
+
+    p = sub.add_parser("propose", help="脚本入提案队列（过静态门禁，等人批量审批）")
+    p.add_argument("path", help="待收敛脚本路径（.sh/.py）")
+    p.set_defaults(fn=cmd_propose)
+
+    p = sub.add_parser("recent", help="近期使用工具摘要（usage-ledger 反哺，断点恢复用）")
+    p.add_argument("-n", type=int, default=10, help="显示条数（默认 10）")
+    p.set_defaults(fn=cmd_recent)
+
+    p = sub.add_parser("approve", help="审批提案队列（默认列队；--all 全收 / --name 指定收）")
+    p.add_argument("--all", action="store_true", help="批量登记全部提案")
+    p.add_argument("--name", help="仅登记指定名称的提案")
+    p.set_defaults(fn=cmd_approve)
+
     p = sub.add_parser("run", help="按名称或短别名运行工具（KEY=value 内联覆盖参数，其余原样透传）")
     p.add_argument("tool", help="工具名称或头部 alias 字段中的短别名")
+    p.add_argument("--chain", action="store_true",
+                   help="成功后依次执行头部 after: 声明的后续工具（失败即中断）")
     # REMAINDER：tool 之后的 token 全部原样透传（含 --stop 等选项样式，不再需要 -- 分隔）
     p.add_argument("tool_args", nargs=argparse.REMAINDER,
                    help="KEY=value 为参数覆盖（不透传）；其余参数原样透传给工具")

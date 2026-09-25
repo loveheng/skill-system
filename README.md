@@ -6,7 +6,7 @@ updated: 2026-09-25
 
 # AI 辅助开发 Skill 体系（设计意图与使用手册）
 
-> 定位：解释本仓库与前端姊妹仓库 AI 辅助开发 skill 体系的**设计意图**、各 skill **功能边界**与**使用方式**。各 skill 正文是唯一规范事实源——本文只做意图解释与导航，不复制规范正文，冲突时以 skill 正文为准。过程记忆（memory/devlog/lessons）不入本文，归 `context/`。
+> 定位：解释本仓库与前端姊妹仓库 AI 辅助开发 skill 体系的**设计意图**、各 skill **功能边界**与**使用方式**。机制正文一律落在对应 skill（本文只留薄指针与意图解释），导航表见 §1.8 与 §二。各 skill 正文是唯一规范事实源——本文只做意图解释与导航，不复制规范正文，冲突时以 skill 正文为准。过程记忆（memory/devlog/lessons）不入本文，归 `context/`。
 
 ## 一、设计意图
 
@@ -34,8 +34,8 @@ updated: 2026-09-25
 ```mermaid
 flowchart TD
     U[用户会话] --> R[触发路由：description 匹配 / 手动调用]
-    R --> L1[流程层 global：dev-loop 交互SOP与记忆 · dev-guide 流程引导 · project-index 索引机制 · memo-collector 备忘台账]
-    R --> L2[项目规范层：backend-dev · frontend-dev · docs · workflow · native-build · runtime-metadata]
+    R --> L1[流程层 global：dev-loop 交互SOP与记忆 · dev-guide 流程引导 · project-index 索引机制 · memo-collector 备忘台账 · ai-sideeffect-guard 副作用收集 · docs-spec 文档规范]
+    R --> L2[项目规范层 project-local：后端仓 backend-dev · docs · workflow · native-build · runtime-metadata；前端仓 frontend-dev]
     L1 --> L3[项目索引层 project-local 随仓库：service-index 后端 · index 前端]
     L2 --> L3
     L1 --> L4[记忆层 context：CURRENT + memory + devlog + lessons]
@@ -46,8 +46,9 @@ flowchart TD
 
 - **冲突裁决链**：绑定 epic 的 memory 显式最新决策 ＞ 项目级 skill / AGENTS.md ＞ dev-loop 通用规约。memory 决策属有意覆盖；推翻项目规范时以 `[SSOT 修正]` 审计行留痕。
 - **挂载点两级**：
-  - global：`~/.agents/skills/<name>/SKILL.md`——跨项目通用机制 + stock-calculator 全家桶专属规范；
-  - project-local：`<repo>/.agents/skills/<repo-name>-index/SKILL.md`——功能归属数据，随仓库版本化，Zed 自动发现。
+  - global：`~/.agents/skills/<name>/SKILL.md`——**仅**跨项目通用机制（8 个，换项目零编辑）；
+  - project-local：`<repo>/.agents/skills/<name>/SKILL.md`——项目专属规范 skill + 功能归属索引，随仓库版本化、随仓库 clone 即得，Zed 自动发现（新会话生效）。
+- **归属判定**：正文出现项目名/模块结构/构建命令/领域清单等**项目事实** → project-local；只讲机制与流程 → global。新 skill 默认 project-local，确认跨项目通用才升 global。
 - **加载方式**：description 与请求匹配时自动路由；`skill` 工具显式调用；project-local 未被自动发现时直接读 SKILL.md 路径。
 
 ### 1.5 冷启动（新机器 / 新成员）
@@ -80,12 +81,12 @@ flowchart TD
 | 风险/假设/测试点 | 潜在雷、未验证前提、被否决的候选路径吗？ | todos.md（积压池） | memo-collector §1（未验证假设点名信号 + `(测试)` 类型） |
 | 业务逻辑细节 | 边界推演、领域规则吗？ | 代码注释（随代码生存）；宏观规则 → docs/ | backend-dev §2.6 / frontend-dev §4 防腐注释；宏观联动见 stock-calculator-docs §二 |
 | 护栏咒语 | 用户重复纠正的项目级约束吗？ | 对应 SKILL.md（体系自进化） | memo-collector §1 咒语行（当轮附注建议，经确认写入） |
-| AI 不确定点 / 隐患 | 实现是猜测/未实证/绕坑，可能埋隐患吗？ | 代码注释 `// UNCERTAIN:` → uncertainty-scan 收集 → 高危转 todos.md 风险类 | 本文 §1.8 |
-| 静默降级 / 吞异常 | 失败被悄悄兜底（默认值/只记日志/吞异常）而非上报吗？ | 代码注释 `// DEGRADE:` → degrade-scan 收集（含形状扫描）→ 高危转 todos.md 风险类 | 本文 §1.9 |
-| 写码残留 | 遗留调试语句 / 注释掉的代码 / 多余依赖吗？ | 代码文件原地 → code-hygiene-scan 扫描 → 直接清理 | 本文 §1.9 |
-| 运行时行为 | 降级真触发了吗（几次/多频）？ | 日志行 `[DEGRADE] <场景>` → dtrig grep 聚合 → 高频场景评估 / 零触发降观察 | 本文 §1.10 |
-| 验证记录 | 声称完成的变更有实际验证命令+结果吗？ | devlog `[验证]` 行（收尾自动追加）→ @audit 第 12 项差核对 | 本文 §1.10 |
-| 完成后注意事项 | 有时效/事件绑定的事后注意/盯守事项吗？ | todos `(风险)` + `[once]`/`[long]` 标注 → once 完成自动转 done / long 每 @done 强制重评 | 本文 §1.10 |
+| AI 不确定点 / 隐患 | 实现是猜测/未实证/绕坑，可能埋隐患吗？ | 代码注释 `// UNCERTAIN:` → uncertainty-scan 收集 → 高危转 todos.md 风险类 | ai-sideeffect-guard §1 |
+| 静默降级 / 吞异常 | 失败被悄悄兜底（默认值/只记日志/吞异常）而非上报吗？ | 代码注释 `// DEGRADE:` → degrade-scan 收集（含形状扫描）→ 高危转 todos.md 风险类 | ai-sideeffect-guard §2 |
+| 写码残留 | 遗留调试语句 / 注释掉的代码 / 多余依赖吗？ | 代码文件原地 → code-hygiene-scan 扫描 → 直接清理 | ai-sideeffect-guard §2 |
+| 运行时行为 | 降级真触发了吗（几次/多频）？ | 日志行 `[DEGRADE] <场景>` → dtrig grep 聚合 → 高频场景评估 / 零触发降观察 | ai-sideeffect-guard §2 |
+| 验证记录 | 声称完成的变更有实际验证命令+结果吗？ | devlog `[验证]` 行（收尾自动追加）→ @audit 第 12 项差核对 | dev-loop §2 |
+| 完成后注意事项 | 有时效/事件绑定的事后注意/盯守事项吗？ | todos `(风险)` + `[once]`/`[long]` 标注 → once 完成自动转 done / long 每 @done 强制重评 | memo-collector §0 |
 
 ```mermaid
 flowchart TD
@@ -97,11 +98,11 @@ flowchart TD
     B -->|业务边界推演| C5[代码注释防腐 - 宏观规则走 docs 域文档]
     B -->|护栏咒语| C6[对应 SKILL.md 护栏 - 体系自进化]
     B -->|AI 不确定点/隐患| C7["代码注释 // UNCERTAIN: - 收集评估 §1.8"]
-    B -->|静默降级/吞异常| C8["代码注释 // DEGRADE: - 收集评估 §1.9"]
-    B -->|写码残留| C9["代码原地 - hygiene 扫描清理 §1.9"]
-    B -->|运行时行为(实际触发)| C10["日志行[DEGRADE]场景 - dtrig 聚合 §1.10"]
-    B -->|验证记录| C11["devlog [验证] 账本 - @audit 第12项 §1.10"]
-    B -->|完成后注意事项(时效)| C12["todos 风险 + [once]/[long] §1.10"]
+    B -->|静默降级/吞异常| C8["代码注释 // DEGRADE: - 收集评估 ai-sideeffect-guard §2"]
+    B -->|写码残留| C9["代码原地 - hygiene 扫描清理 ai-sideeffect-guard §2"]
+    B -->|运行时行为(实际触发)| C10["日志行[DEGRADE]场景 - dtrig 聚合 ai-sideeffect-guard §2"]
+    B -->|验证记录| C11["devlog [验证] 账本 - @audit 第12项 dev-loop §2"]
+    B -->|完成后注意事项(时效)| C12["todos 风险 + [once]/[long] memo-collector §0"]
 ```
 
 **四类隐性资产：典型信号与收集口诀**：
@@ -113,209 +114,25 @@ flowchart TD
 | 测试场景启发 | 排错时被否决的候选根因路径（4 选 1 中的另外 3 条） | 「把另外 3 条异常路径 `@todo` 落盘为 `(测试)` 待办，后续补单测」 |
 | 咒语（元认知护栏） | 「必须用 Jakarta，不能用旧版 javax」「useEffect 必须加清理函数」 | 当轮一行附注建议写入对应 SKILL.md，经确认执行——体系自进化 |
 
-规范事实源分布：假设/测试/咒语信号 → memo-collector §1；注释防腐 → backend-dev §2.6、frontend-dev §4；断点/权衡/踩坑 → dev-loop §2/§3/§6。本文只做导航。
+规范事实源分布：假设/测试/咒语信号 → memo-collector §1；注释防腐 → backend-dev §2.6、frontend-dev §4；断点/权衡/踩坑 → dev-loop §2/§3/§6；不确定/降级标记与扫描 → ai-sideeffect-guard §1/§2。本文只做导航。
 
-### 1.8 不确定标记（UNCERTAIN 约定与收集评估）
+### 1.8 AI 副作用收集（薄指针，正文见 ai-sideeffect-guard）
 
-问题：AI 写码时遇到不确定点（未实证的接口行为、猜测的边界、绕坑的权宜实现）往往「直接写」，只留一条普通「注意」注释——项目复杂度增长后，这些散落的不确定点就是隐患与「莫名其妙问题」的来源。对策：**统一标记 → 机械收集 → 定期评估**，全程只复用既有容器（代码注释 + todos.md），不为收集新增任何文件（对齐 §1.7 原则）。
+AI 写码有三类隐性副作用极易随窗口蒸发：**实现未实证**、**错误被悄悄消化**（能跑但错、零报错）、**写码残留**（调试语句 / 注释掉的代码 / 依赖膨胀）。治理机制已下沉为 global skill `ai-sideeffect-guard`——写码留下不确定实现或猜测性兜底、以及 `@done` / `@audit` / 发布前体检时按 description 自动路由，**本文不复制其正文**。
 
-- **标记约定**：AI 写码遇不确定点统一写 `// UNCERTAIN: <一句话说明：哪里不确定 + 风险是什么>`。与 `TODO`（计划做）和普通防腐注释（结论已确定）区分——只有「不确定/未实证」才用 UNCERTAIN。
-- **收集**：`toolbox run uncertainty-scan`（全局池工具，别名 `uscan`，任意 git 仓库通用，自动探测仓库根）。扫描 `UNCERTAIN`/`TODO`/`FIXME`/`XXX`/`HACK` + 中文隐患词（隐患/待确认/待验证/不确定等），覆盖 Java/Python/Shell/TS/Go/Rust 等 14 种语言，自动排除构建目录；有命中 exit 1，`--md <文件>` 导出「位置 + 内容」报告，`--root/--whitelist/--pattern` 可覆盖默认。统一速查见 §1.9 末尾「用法速查」（四工具 uscan/dscan/hyg/dtrig）。
-- **白名单（防误报）**：内置过滤降级文案类误报（「暂不可用」「降级响应」等撞上中文隐患词的行）+ 仓库根 `.uncertainty-whitelist`（每行一个正则，`#` 为注释行，放本项目专属误报模式）。
-- **评估节奏**：按需跑 / epic 收尾（@done）/ `@audit` 时跑。高危项（影响正确性、数据一致性、安全边界）经确认转 `context/todos.md` 风险类待办；低危项（已知降级、有版本规划的）保留注释即可，不落待办。
-- **新仓库接入**：dev-init 初始化时建空骨架（仅头注释，禁预置条目，dev-init §1 第 7 步）；零操作也能跑（git 仓库根自动探测），误报多时补条目。
-- **自诊断**：`toolbox run uncertainty-scan --self-test`（金丝雀：坏样本必抓、白名单必滤）。
-
-```mermaid
-flowchart LR
-    A[AI 写码] -->|遇不确定点| B["注释 // UNCERTAIN: 说明"]
-    B --> C["toolbox run uncertainty-scan<br/>全局工具 · 白名单过滤"]
-    C -->|命中报告| D{评估}
-    D -->|高危：正确性/数据/安全| E["context/todos.md 风险类"]
-    D -->|低危：已知降级且有规划| F[保留注释，不落待办]
-```
-
-### 1.9 静默降级与代码残留（DEGRADE 约定 + 卫生扫描）
-
-§1.8 管「实现不确定」，本节管两类更隐蔽的 AI 副作用：**错误被悄悄消化**（能跑但错，零报错）与**写码残留**（调试语句/注释掉的代码/依赖膨胀，随复杂度积累成噪音与隐患）。同一套机制两条腿：意图类走标记（AI 写码时附），形状类走机械扫描（无需标记）。
-
-**DEGRADE 标记约定**：AI 写码遇到「失败时兜底而非上报」（返回默认值、只记日志、吞掉异常）且该兜底是**猜测/未核实**的，统一在兜底处写 `// DEGRADE: <为何兜底 + 待谁核实>`。与 UNCERTAIN（整个实现不确定）区分——DEGRADE 专指「错误被悄悄消化」的路径。有意的降级（如 LLM 渠道不可用返回降级文案）属设计行为，不标记、靠白名单/人审区分。
-
-**两个全局池工具**（任意 git 仓库通用，自动探测仓库根；有命中 exit 1，`--md <文件>` 导出报告，`--root` 覆盖根）：
-
-| 工具（别名） | 收集面 | 说明 |
-|---|---|---|
-| `degrade-scan`（dscan） | DEGRADE 标记 + 静默失败形状 | 空 catch / 仅日志吞异常 / catch 后返回默认值 / except 仅 pass / JS 仅 console；有 rethrow 的 catch 自动跳过；白名单抑制已定性有意降级（内置意图词 + 仓库根 `.degrade-whitelist` 每行一正则 + `--whitelist` 覆盖），报告输出抑制数 |
-| `code-hygiene-scan`（hyg） | 调试残留 / 注释掉的代码 / 依赖膨胀 | println/printStackTrace/print( /console.*/DEBUG 开关；注释代码按代码形态判定（说明性注释不误报）；`--deps` 追加 `mvn dependency:analyze`（used-undeclared / unused-declared，较慢默认不跑） |
-
-**评估节奏**：分级——会话中按需只跑与本轮改动相关的 1 个工具；epic 收尾（@done）/ `@audit` / 发布前全跑四工具（口径见「用法速查」；完整走查示例见 §1.11）。处置口径：
-- 静默降级：属「有意降级」补注释说明理由，并登记仓库根 `.degrade-whitelist` 抑制（防每次扫描对同一批已知项重复 triage；修复后删除登记恢复监控）；属「未核实猜测」升级为 UNCERTAIN/DEGRADE 标记，高危（正确性/数据一致性）转 todos 风险类；
-- 代码残留：调试语句删除或降级为受控日志；注释掉的代码整段删除（git 有历史，不需要注释存档）；依赖 undeclared 补声明、unused 移除（先确认非反射/AOT 需要）。
-
-**自诊断**：`toolbox run <工具> --self-test`（金丝雀：坏样本必抓、好样本必不误报）。
-
-```mermaid
-flowchart LR
-    A[AI 写码] --> B{失败路径如何处置}
-    B -->|猜测/未核实的兜底| C["注释 // DEGRADE: 原因+待核实"]
-    B -->|有意降级（设计行为）| D[普通注释说明理由]
-    C --> E["degrade-scan 标记层"]
-    B --> E2["空catch/吞异常/兜底默认值"]
-    E2 --> E
-    F[写码残留：println/注释代码/多余依赖] --> G["code-hygiene-scan 形状层"]
-    E --> H{评估}
-    G --> H
-    H -->|高危| I["context/todos.md 风险类"]
-    H -->|残留| J[直接清理]
-```
-
-**用法速查（四个扫描工具：uscan / dscan / hyg / dtrig）**——任意 git 仓库内直接跑，自动探测仓库根；命中 = exit 1，无命中 = exit 0：
-
-```sh
-# 分级节奏：会话中按需只跑与本轮改动相关的 1 个（动 catch/兜底 → dscan；动标记注释 → uscan；残留清理 → hyg；部署/发布观测 → dtrig）
-# @done / @audit / 发布前：全跑四工具并导出报告
-toolbox run uscan --md /tmp/uncertainty-report.md   # §1.8 不确定标记（UNCERTAIN/TODO/隐患词）
-toolbox run dscan --md /tmp/degrade-report.md       # §1.9 静默降级（DEGRADE + 空catch/吞异常/兜底默认值）
-toolbox run hyg   --md /tmp/hygiene-report.md       # §1.9 代码残留（调试语句/注释代码）
-toolbox run hyg   --deps                            # 追加依赖膨胀分析（mvn dependency:analyze，较慢，单独跑）
-toolbox run dtrig --md /tmp/degrade-trigger-report.md  # §1.10 运行时 [DEGRADE] 实际触发聚合（默认 /tmp/logs，--logs 可指定）
-
-# 覆盖默认
-toolbox run uscan --root <目录>           # 自定义扫描根
-toolbox run uscan --whitelist <文件>      # 自定义白名单（每行一个正则，# 注释行）
-toolbox run uscan --pattern <正则>        # 覆盖标记词
-toolbox run <工具> --json                 # 一行 JSON 契约结论（门禁/钩子消费）
-
-# 自诊断（金丝雀：坏样本必抓、好样本必不误报）
-toolbox run <uscan|dscan|hyg|dtrig> --self-test
-```
-
-- **何时跑（分级，防四报告噪音坟场）**：会话中按需 → 只跑与本轮改动相关的 1 个工具；epic 收尾（@done）/ `@audit` / 发布前 → 全跑四个；新仓库首次跑一次建立基线（命中先评估存量，有意降级登记白名单，后续只关注增量）。
-- **参数权威口径**：各工具 `--help` 与脚本头部注释为 SSOT（见 §五），此处为速查。
-
-### 1.10 执行期行为与完成后注意事项
-
-§1.8/§1.9 都是**静态**收集——看得见「潜在」，看不见两件事：**运行时实际发生了什么**（哪条降级路径真实承载流量）与**完成后的注意事项该活多久**（哪些事后注意应自动消失、哪些该长期留存）。本节补齐两者，仍守「零新增文件」红线：运行期行为读日志、验证记录进 devlog、生命周期是 todos 里的标注。
-
-**① 运行时降级观测（执行期行为收集）**
-- **日志约定**：DEGRADE 标记处的降级分支在兜底前打一条含 `[DEGRADE] <场景key>` 的日志（如 `log.warn("[DEGRADE] persona-redis-unavailable fallback to code persona")`）；场景 key 用 kebab-case，与代码位置语义对齐。
-- **收集**：`toolbox run dtrig`（degrade-trigger，速查见 §1.9 末）——纯 grep 非 watch、无常驻进程；默认扫 `/tmp/logs`（本项目 jm 模块日志惯例），`--logs <目录|文件>` 可指定多个，`--md` 导出「场景 × 次数 × 最近触发 × 文件 × 样例」。
-- **用法**：高频场景（占大头）= 该路径真实承载流量 → 先定性有意降级（降级文案合理即可）或未核实猜测（补告警 / 转 todos 风险类）；**静态命中而零触发的可降级观察**（长期零触发 = 路径可能已死）。
-- **存量零命中是预期而非漏报**：dtrig 只对本约定启用后新写的 `[DEGRADE]` 日志行有数据（存量代码没有这类日志行），早期零命中是常态，不要解读为「没有降级发生」；随新代码写 DEGRADE 标记+日志，数据逐轮积累。
-
-**② 验证账本（过程记录：声称完成 vs 实际验证）**
-- 问题：AI 声称「完成」但没真跑验证（编译过、看着对、断言空）——「莫名其妙问题」的头号来源。这类无法从代码扫出，属会话元数据。
-- 机制（dev-loop V3.6）：Diff 轮次收尾时 AI 随 `[变更]` 行向 devlog 追加 `- [YYYY-MM-DD] [验证]: <实际执行的验证命令与结果，如 ./mvnw compile → 通过>`；未执行如实写 `未执行: <原因>`（严禁虚构，对齐全局护栏 5）；`@audit` 第 12 项抽查 `[变更]` 与 `[验证]` 的差（缺口 / 无理由 = ⚠）。
-
-**③ 完成后注意事项生命周期（todos `[once]`/`[long]`，memo-collector §0）**
-- 完成后注意事项照旧收集（todos 风险类，见 §1.7），关键是**必须标生命周期**（与类型正交、紧随类型标签；普通积压项不标）：
-
-| 标注 | 语义 | 示例 | 处置 |
-|---|---|---|---|
-| `[once]` 一次性 | 事件/时效绑定，做完即失效 | 「部署后 24h 盯队列深度」「跑一次回填」 | 事件确认完成 → **自动流转** done.md（无需确认）；@audit 发现 30 天未动且已过事件窗口 → 附注建议过期清除；确认失效不做 → 整行删除（附注原因，不入 done.md） |
-| `[long]` 长期 | 跨里程碑持续有效 | 「该表 10M 行需分表」「该限流随流量增长需重评」 | 留存不动，**每个 `@done` 收尾强制逐条重评**（保留 / 转具体动作 / 关闭，经确认） |
-
-- 为何必须标：不标则一次性事项永远赖在 todos 里腐烂（噪音坟场），长期事项又会在 @done 归并时被误清。
-- **用法**：`@todo` / 自动收集时 AI 按 §0 判定特征自动标注（含一次性触发条件或明确时限 → `[once]`；含「重评/到 X 时/随增长/长期」→ `[long]`）；人无需手动操作，只需在附注里看到标注后确认处置。
-
-```mermaid
-flowchart LR
-    A["运行日志行 [DEGRADE] <场景>"] --> B["dtrig grep 聚合"]
-    B -->|高频场景| C{定性}
-    C -->|有意降级| D[降级文案合理即可]
-    C -->|未核实猜测| E[补告警 / 转 todos 风险]
-    F[静态命中而零触发] --> G[降观察 / 疑死代码]
-    H[Diff 收尾] --> I["devlog [验证] 账本行"]
-    I --> J["@audit 第 12 项缺口抽查"]
-    K[完成后注意事项] --> L["todos (风险) + [once]/[long]"]
-    L -->|[once] 事件确认完成| M[done.md 自动流转]
-    L -->|[long] @done| N[强制逐条重评]
-```
-
-### 1.11 示例用法：一条隐患的完整生命周期（标记 → 扫描 → 白名单 → 触发 → todos）
-
-> 以下用一条「Redis 降级」路径把 §1.8–§1.10 的机制从头走到尾，命令在任意 git 仓库可直接照跑。
-
-**Step 0 · 项目接入**（一次性，dev-init §1 第 7 步）：仓库根自动建两个白名单空骨架（仅头注释，禁预置条目）：
-
-```bash
-.uncertainty-whitelist   # uscan 误报白名单
-.degrade-whitelist       # dscan 有意降级白名单
-```
-
-**Step 1 · AI 写码：标不确定 + 标降级**（开发者唯一要记的动作）：
-
-```java
-public String getPersona(String key) {
-    try {
-        return redisCache.get(key);
-    } catch (Exception e) {
-        // DEGRADE: Redis 不可用回落代码 persona，是否等价需产品确认
-        log.warn("[DEGRADE] persona-redis-unavailable fallback to code persona");
-        return CODE_PERSONA;
-    }
-}
-
-// UNCERTAIN: 该接口未实证——tz 参数缺失时是否按 UTC 处理
-private OffsetDateTime parseAt(String raw, String tz) { /* ... */ }
-```
-
-口径：`UNCERTAIN:` 表整个实现不确定；`DEGRADE:` 表失败时兜底且兜底是猜测，兜底前打 `[DEGRADE] <场景key>` 日志（Step 4 dtrig 消费）。
-
-**Step 2 · 扫描：会话中只跑与本轮改动相关的 1 个，全跑留给 @done/@audit**：
-
-```bash
-toolbox run dscan --md /tmp/degrade-report.md      # 动了 catch/兜底 → 只跑这个
-toolbox run uscan --md /tmp/uncertainty-report.md  # 动了标记注释 → 只跑这个
-```
-
-输出（有命中 = exit 1，白名单抑制数在结论行可观测）：
-
-```
-✗ 发现 1 处静默降级/吞异常路径（标记+形状），白名单抑制 45 处已知项…
-| src/main/java/.../PersonaStore.java:32 | DEGRADE标记 | // DEGRADE: Redis 不可用回落代码 persona… |
-```
-
-**Step 3 · 定性分流：有意降级登记白名单，高危转 todos**：
-
-场景 A——定性为**有意降级**（设计行为合理，不必每次重复 triage）：仓库根白名单追加一行，下次扫描自动抑制：
-
-```
-# .degrade-whitelist（追加）
-persona-redis-unavailable
-```
-
-场景 B——定性为**高危**（正确性/数据一致性，未核实）：不登记白名单（保持每次报），转 todos 风险类并标 `[long]`（memo-collector §0）：
-
-```
-# context/todos.md · misc 分节（追加）
-- [ ] [2026-09-25] (风险) [long] PersonaStore.getPersona: Redis 不可用静默回落代码 persona，persona 语义等价未核实 (src: ai, degrade-scan)
-```
-
-同时 Diff 轮次收尾向 devlog 追加 `[验证]` 行（dev-loop V3.6，@audit 第 12 项核缺口）：
-
-```
-- [2026-09-25] [验证]: ./mvnw -pl stock-calculator-main compile → 通过
-```
-
-**Step 4 · 运行时：dtrig 聚合实际触发**（存量零命中是预期，数据随新代码逐轮积累）：
-
-```bash
-toolbox run dtrig --md /tmp/degrade-trigger-report.md   # 默认 grep /tmp/logs（jm 日志惯例）
-```
-
-| 输出（场景 × 次数 × 最近触发） | 处置 |
+| 主题 | 落点 |
 |---|---|
-| `persona-redis-unavailable` 1042 次 | 高频 = 该路径真实承载流量 → 定性有意降级或未核实猜测 |
-| 静态命中但零触发 | 长期零触发 = 路径可能已死 → 降观察 / 清理 |
+| UNCERTAIN / DEGRADE 标记约定（写码时唯一手动动作） | ai-sideeffect-guard §1 |
+| 四工具速查（uscan / dscan / hyg / dtrig）与扫描节奏 | ai-sideeffect-guard §2 |
+| 白名单与防误报（`.uncertainty-whitelist` / `.degrade-whitelist`） | ai-sideeffect-guard §3 |
+| 评估节奏与处置口径（高危转 `风险` 待办） | ai-sideeffect-guard §4（待办格式见 memo-collector §0） |
+| 一条隐患的完整生命周期示例 | ai-sideeffect-guard §5 |
 
-**Step 5 · 收口：@done / @audit**：全跑四工具 + `@audit` 十二项（第 12 项抽查 `[验证]` 缺口）；`[once]` 事项事件确认完成自动转 done.md，`[long]` 事项每个 `@done` 强制逐条重评（保留 / 转动作 / 关闭）。
-
-> 常见误读：① dtrig 零命中 ≠ 没有降级（存量代码没有 `[DEGRADE]` 日志行）；② 白名单条目是「已知有意」而非「已修复」——对应路径修复后须**删除登记恢复监控**。
+**相邻机制（各有正文，本文不复制）**：验证账本 `[验证]` → dev-loop §2（`@audit` 第 12 项核缺口）；完成后注意事项生命周期 `[once]`/`[long]` → memo-collector §0/§4；运行时 `[DEGRADE]` 触发观测 → ai-sideeffect-guard §2（dtrig）。
 
 ## 二、Skill 清单（功能与触发时机）
 
-共 15 个：global 13 + project-local 2。
+共 17 个：**global 9**（跨项目机制） + **project-local 8**（随仓库版本化：后端仓 6 + 前端仓 2）。
 
 ### 2.1 流程层（global，跨项目通用）
 
@@ -327,27 +144,31 @@ toolbox run dtrig --md /tmp/degrade-trigger-report.md   # 默认 grep /tmp/logs�
 | **project-index** | 通用「功能 → 代码落点 + 文档落点」索引机制：表格式规范、L1/L2 两级调阅、防膨胀预算、维护协议、与 README/规范 skill 的边界 | 定位功能归属、建/维护项目索引、判断改动影响面 |
 | **memo-collector** | 备忘收集台账：AI 回复与用户口述中的待办/风险/未验证假设/测试启发自动收集去重落盘——todos.md 按域分节（活跃 epic + misc 兑底，与 devlog 挂靠同规则），七类内联标签（功能/修复/优化/文档/环境/测试/风险），咒语类信号不落台账、当轮附注建议写入对应 SKILL.md 护栏（经确认，体系自进化）；完成后流转 done.md；人工打勾自动回收（脏读校验）、(block) 阻塞绝对优先、@todo-groom 语义洗盘；与 dev-loop 互补（断点=唯一下一步，本表=全部积压） | 回复将产生「待办/注意/风险/未验证假设/咒语」类信号、用户说「记个待办/收集备忘」、发送 @todo @todos @tdone @todo-clean @todo-groom |
 | **agent-toolbox** | 全局脚本工具箱机制：脚本池（全局 `~/.agents/toolbox/scripts/` + 项目 `<repo>/scripts/agent-tools/`，同名项目覆盖全局）、元工具 `toolbox`（规范 SSOT + 执行器：init/new/check/list/run-hooks/install-hooks/spec/remove）、脚本自描述头部规范 v1.1（双语言：shell 优先 + python 兜底）、退出码契约（0 过/1 未过/2 自身故障）、金丝雀自测、脚本登记制（持久脚本入池、禁止系统内散放）、fail-open 钩子巡检（bootstrap/audit/cron/pre-commit）；人与 AI 共用同一 CLI，无 AI 可完全人工操作 | 需要复杂校验/巡检/环境体检，新增/修改/退役定制脚本工具，或收编登记散落各处的持久脚本时；写脚本前先 `toolbox spec`，登记用 `toolbox check` |
+| **ai-sideeffect-guard** | AI 写码隐性副作用的标记与收集治理：未实证实现标 `// UNCERTAIN:`、猜测性兜底（空 catch/吞异常/返回默认值）标 `// DEGRADE:` + 兜底前 `[DEGRADE] <场景>` 日志；四工具机械收集（uscan/dscan/hyg/dtrig）与白名单、评估处置口径、完整生命周期示例 | 写码留下不确定实现或静默降级、清理写码残留、`@done`/`@audit`/发布前做副作用体检时 |
+| **docs-spec** | 工程文档（docs/）规范**机制层**（与 project-index 同构：机制 + 零项目数据）：域目录落点与生命周期切片命名、Frontmatter（status/updated）时效、Mermaid 唯一图表标准、废弃 Tombstone 与域墓碑、引用移动与 README 纯结构索引、写后自检 lint；域表与 lint 脚本由**项目** docs skill 填 | 新增/修改/移动/废弃工程文档时；项目接入需建 docs 数据 skill 时（dev-init §1 第 5 步，无 docs/ 则跳过不留空位） |
 | **dev-init** | 新项目/新仓库首次接入 skill 体系的一次性初始化引导 checklist：按序编排 context/ 记忆骨架 → workflow 事实源 → project-local 索引 → 规范 skill → toolbox 项目池 → AGENTS.md 兜底 → 冷启动验收；零规范事实零项目数据，各步薄指针到既有机制 | 新项目接入 / 初始化项目 skill 体系 / 已接入项目补缺时（项目级一次性流程；日常任务归 dev-guide） |
 
 > **脚本登记制（agent-toolbox）**：AI 产出的持久脚本一律经 `toolbox check` 登记入池——跨项目入全局池，项目专属入 `<repo>/scripts/agent-tools/`；禁止散放于家目录/项目根等处（/tmp 一次性分析脚本豁免，用完即弃）。历史散放脚本按「评估 → 合规化 → 入池 → 原址清理」收编，迁移走同一 check 门禁不豁免。流程细节见 agent-toolbox SKILL.md「散乱脚本治理」节。
 
-### 2.2 项目规范层（stock-calculator 专属，global 挂载）
+### 2.2 项目规范层（project-local，随仓库版本化）
 
-| skill | 一句话职责 | 何时加载 |
-|---|---|---|
-| **stock-calculator-backend-dev** | 后端代码模式规范（Spring Boot 4 / Java 21 / Jakarta JPA / PostgreSQL）：统一风格、Entity 三型 + JSONB/时间戳/生成列、Repository、Service 判重写入/字典 upsert/事务组合、TaskService、Util/Config、HTTP 抓取、标准实现优先、边界推演防腐注释（§2.6：非显然逻辑同轮写 JavaDoc，写 why 不写 what） | 写后端任意模块、建表/接口/定时任务、发现非标准实现 |
-| **stock-calculator-frontend-dev** | 前端规范（React+TS+Vite+Dexie+zustand）：分层架构与依赖方向 R1/R2/R3 硬护栏、store 切片模式、services 惰性封装、新增功能落点速查、验证命令、边界推演防腐注释（非显然逻辑同轮写 JSDoc） | 前端新增功能、改 store/db/views/services/utils、分层或循环依赖问题 |
-| **stock-calculator-docs** | docs/ 工程文档规范：功能域落点与生命周期切片命名、Frontmatter 时效标注、Mermaid 唯一图表标准、废弃 Tombstone、§八写后自检 lint | 新增/修改/移动/废弃 docs 文档；代码触达对外契约后的联动提示 |
-| **stock-calculator-workflow** | 环境限制与项目事实源：终端禁 $ 形式字符串、单次写入截断、可靠工作模式（分段写入）、模块结构、包名、GraalVM 工具链、compose 本地依赖、构建命令 | 本项目所有终端命令与文件写入操作（强制性） |
-| **stock-calculator-native-build** | Native 构建与多模块故障排查：环境探测 → contextLoads 复现 → 构建脚本审查 → AOT 产物验证 → 二进制冒烟的排查套路 + 已验证修复结论 | native 编译、GraalVM、AOT、CI 构建、多模块启动失败 |
-| **stock-calculator-native-runtime-metadata** | native 二进制「编译成功但运行期崩溃/静默失效」的 reachability metadata 迭代修复：javap 先行、一轮一变量、agent 录制、十八轮修复目录 | ELF 已产出但冒烟/真实业务失败、反射/类/资源缺口、零报错静默失效 |
+> 原挂 global，已下沉到各自仓库 `.agents/skills/`——换项目零编辑，规范随代码一起演进。
+
+| skill | 所在仓库 | 一句话职责 | 何时加载 |
+|---|---|---|---|
+| **stock-calculator-backend-dev** | 后端仓 | 后端代码模式规范（Spring Boot 4 / Java 21 / Jakarta JPA / PostgreSQL）：统一风格、Entity 三型 + JSONB/时间戳/生成列、Repository、Service 判重写入/字典 upsert/事务组合、TaskService、Util/Config、HTTP 抓取、标准实现优先、边界推演防腐注释（§2.6：非显然逻辑同轮写 JavaDoc，写 why 不写 what） | 写后端任意模块、建表/接口/定时任务、发现非标准实现 |
+| **stock-calculator-frontend-dev** | 前端仓 | 前端规范（React+TS+Vite+Dexie+zustand）：分层架构与依赖方向 R1/R2/R3 硬护栏、store 切片模式、services 惰性封装、新增功能落点速查、验证命令、边界推演防腐注释（非显然逻辑同轮写 JSDoc） | 前端新增功能、改 store/db/views/services/utils、分层或循环依赖问题 |
+| **stock-calculator-docs** | 后端仓 | docs/ 工程文档规范：功能域落点与生命周期切片命名、Frontmatter 时效标注、Mermaid 唯一图表标准、废弃 Tombstone、§八写后自检 lint | 新增/修改/移动/废弃 docs 文档；代码触达对外契约后的联动提示 |
+| **stock-calculator-workflow** | 后端仓 | 环境限制与项目事实源：终端禁 $ 形式字符串、单次写入截断、可靠工作模式（分段写入）、模块结构、包名、GraalVM 工具链、compose 本地依赖、构建命令 | 本项目所有终端命令与文件写入操作（强制性） |
+| **stock-calculator-native-build** | 后端仓 | Native 构建与多模块故障排查：环境探测 → contextLoads 复现 → 构建脚本审查 → AOT 产物验证 → 二进制冒烟的排查套路 + 已验证修复结论 | native 编译、GraalVM、AOT、CI 构建、多模块启动失败 |
+| **stock-calculator-native-runtime-metadata** | 后端仓 | native 二进制「编译成功但运行期崩溃/静默失效」的 reachability metadata 迭代修复：javap 先行、一轮一变量、agent 录制、十八轮修复目录 | ELF 已产出但冒烟/真实业务失败、反射/类/资源缺口、零报错静默失效 |
 
 ### 2.3 项目索引层（project-local，随仓库版本化）
 
 | skill | 所在仓库 | 职责 |
 |---|---|---|
-| **stock-calculator-service-index** | 本仓库 `.agents/skills/` | 后端「功能 → 代码落点 + 文档落点」领域归属表 + 业务别名映射 + 变更落点顺序 + 验证 + 命令速查（跨 skill 指针） |
-| **stock-calculator-index** | 前端仓库 `.agents/skills/` | 前端功能归属表 + 实时触点脚本 `npm run map:features` + 业务别名映射 + 命令速查 |
+| **stock-calculator-service-index** | 后端仓 `.agents/skills/` | 后端「功能 → 代码落点 + 文档落点」领域归属表 + 业务别名映射 + 变更落点顺序 + 验证 + 命令速查（跨 skill 指针） |
+| **stock-calculator-index** | 前端仓 `.agents/skills/` | 前端功能归属表 + 实时触点脚本 `npm run map:features` + 业务别名映射 + 命令速查 |
 
 ## 三、使用手册
 
@@ -392,6 +213,7 @@ flowchart TD
 | 终端命令被截断/取消 | workflow | 禁 $ 形式字符串；长内容 write_file 首写 + edit_file 段尾标记续写 |
 | native 构建失败 | native-build §二 | 排查套路按序执行不跳步 |
 | native 运行期崩溃 / 静默失效 | runtime-metadata | javap 验证根因再动手；一轮只改一类变量 |
+| AI 写码留不确定实现 / 猜测性兜底 / 残留清理 / 副作用体检 | ai-sideeffect-guard | 写码时先标 `UNCERTAIN`/`DEGRADE`；扫描按 §2 分级节奏，会话中只跑相关 1 个 |
 | 新项目接入 / 补缺 | dev-init | 按序 checklist：记忆骨架 → 事实源 → 索引 → toolbox → 验收；索引只登记域级锚点，禁止一次性铺满（机制细节见各步指针出处） |
 | 需要脚本工具 / 环境体检 / 巡检 / 收编散放脚本 | agent-toolbox | 先 `toolbox list` 查现有，无则 `new` → 实现 → `check` 登记；持久脚本禁散放（详见 §3.4） |
 
@@ -421,7 +243,7 @@ flowchart TD
 6. **金丝雀自证**：guard 类工具（trigger≠manual）必带 `--self-test`，内嵌已知坏样本证明「能抓到坏」，防监控工具静默失效。
 7. **平台不 fork + 双仓库版本控制**：平台差异一律运行时探测，严禁 fork 平台副本文件；`~/.agents/skills`（skill 本体 + 元工具）与 `~/.agents/toolbox`（脚本池运行时）各自纳 git——新机器 clone 两仓库后 `toolbox init` 即完成适配。
 
-**命令面**：9 个子命令（`init` / `new` / `check` / `list` / `run-hooks` / `install-hooks` / `spec` / `remove` / `self-test`）——语法、参数与退出码契约统一见 `COMMANDS.md` §4；权威口径以 `toolbox <cmd> --help` 为准。
+**命令面（薄指针，防双源）**：子命令清单、语法与参数一律以 `toolbox --help` / `toolbox <cmd> --help` 为唯一事实源——命令增删只改元工具与 `agent-toolbox` SKILL.md「命令面」节，**不改本文与 COMMANDS.md**。当前分组（导航用，非权威）：生命周期 `init`/`new`/`check`/`remove`；发现与执行 `list`/`suggest`/`run`/`recent`/`propose`/`approve`；钩子与规范 `run-hooks`/`install-hooks`/`spec`/`self-test`。退出码契约见 `COMMANDS.md` §4。
 
 **典型流程**：
 
@@ -429,7 +251,7 @@ flowchart TD
 - **巡检提醒**：会话开场 dev-loop §3 自动跑 `toolbox run-hooks bootstrap --quiet`（exit 0 静默）；`@audit` 第 11 项跑 `audit` 钩——FAIL 按 memo-collector 口径转 `风险` 待办；
 - **收编散放脚本**：评估复用价值 → 合规化补头部/help/json/自测 → `toolbox check` 入池 → 原址删除或改一行薄指针。
 
-**现状**（2026-09-25）：试点工具 `env-doctor`（本地运行时环境体检，trigger: bootstrap——会话开场自动体检）；audit 钩挂载 `context-lint`（context 数据面 + skill 指针面机械校验——@audit 的断点/头部/积压/尺寸/孤儿/待办格式与指针锚点存在性各机械项由其代跑，中文数字节号与裸 § 自引用仍人工抽查）；同日 spec 升 v1.1：语言双通道——shell（.sh）一等公民优先，python 兜底，`toolbox new` 默认出 sh 脚手架，shell 门禁含 shebang + `sh -n` 语法检查，manual 类不限时；历史散放脚本已收编 8 项入项目池 `scripts/agent-tools/`（index-lint、docs-index-lint、run-regression、run-e2e、run-native-smoke、run-native-rest、run-jvm-watch、deploy-cloud-run，长任务 --json=预检语义），项目根不再散放持久脚本；2026-09-25 新增 AI 副作用收集三工具入全局池（`uncertainty-scan`/`degrade-scan`/`code-hygiene-scan`，机制见 §1.8/§1.9，用法速查见 §1.9 末）；同日扩展到执行期行为与完成后注意事项：`degrade-trigger`（运行时 [DEGRADE] 实际触发观测，grep 非 watch）、dev-loop V3.6 验证账本（Diff 收尾 [验证] 行 + @audit 第 12 项验证缺口抽查）、memo-collector [once]/[long] 生命周期标注（context-lint TODO_RE 同步放宽），机制见 §1.10；`install-hooks` 未安装（决策：不接 pre-commit/profile，按需人工触发）；脚本池与快速上手见 `~/.agents/toolbox/README.md`。
+**现状**（2026-09-25）：试点工具 `env-doctor`（本地运行时环境体检，trigger: bootstrap——会话开场自动体检）；audit 钩挂载 `context-lint`（context 数据面 + skill 指针面机械校验——@audit 的断点/头部/积压/尺寸/孤儿/待办格式与指针锚点存在性各机械项由其代跑，中文数字节号与裸 § 自引用仍人工抽查）；同日 spec 升 v1.1：语言双通道——shell（.sh）一等公民优先，python 兜底，`toolbox new` 默认出 sh 脚手架，shell 门禁含 shebang + `sh -n` 语法检查，manual 类不限时；历史散放脚本已收编 8 项入项目池 `scripts/agent-tools/`（index-lint、docs-index-lint、run-regression、run-e2e、run-native-smoke、run-native-rest、run-jvm-watch、deploy-cloud-run，长任务 --json=预检语义），项目根不再散放持久脚本；2026-09-25 新增 AI 副作用收集三工具入全局池（`uncertainty-scan`/`degrade-scan`/`code-hygiene-scan`，机制与用法速查见 ai-sideeffect-guard §1/§2）；同日扩展到执行期行为与完成后注意事项：`degrade-trigger`（运行时 [DEGRADE] 实际触发观测，grep 非 watch）、dev-loop V3.6 验证账本（Diff 收尾 [验证] 行 + @audit 第 12 项验证缺口抽查）、memo-collector [once]/[long] 生命周期标注（context-lint TODO_RE 同步放宽），三者正文分别在 dev-loop §2 与 memo-collector §0；`install-hooks` 未安装（决策：不接 pre-commit/profile，按需人工触发）；脚本池与快速上手见 `~/.agents/toolbox/README.md`。
 
 ### 3.5 环境硬约束（workflow 摘要）
 
@@ -482,10 +304,10 @@ flowchart TD
 - ❌ ASCII 画图 → 流程/状态/架构一律 Mermaid
 - ❌ 记忆归并坏了让 AI 自己重写修复 → `git checkout -- context/<epic>/memory.md` 回滚 + 人工微调（见 §4.3）
 - ❌ 把 `context/` 移出版本控制 → 记忆不可回溯，灾难恢复失效
-- ❌ 隐性资产随窗口蒸发：边界推演不留注释、假设/测试启发不落 todos、不确定点只留普通「注意」注释、咒语只记脑子里 → 按 §1.7 信息漏斗各归其位（不确定点 → §1.8 UNCERTAIN 约定）
-- ❌ 失败悄悄兜底不标注：catch 吞异常/返回默认值属「未核实猜测」却不留 DEGRADE 标记，零报错隐患长期潜伏 → §1.9 DEGRADE 约定 + degrade-scan
-- ❌ 调试语句/注释掉的代码/多余依赖长期留存：写完就忘，随复杂度积累成噪音 → §1.9 code-hygiene-scan 定期清理（注释代码整段删，git 有历史）
-- ❌ 完成后注意事项不标生命周期：一次性事项（部署后盯 24h）永远赖在 todos，长期事项（10M 行分表）在 @done 归并时被误清 → §1.10 `[once]`/`[long]` 标注
+- ❌ 隐性资产随窗口蒸发：边界推演不留注释、假设/测试启发不落 todos、不确定点只留普通「注意」注释、咒语只记脑子里 → 按 §1.7 信息漏斗各归其位（不确定点 → ai-sideeffect-guard §1 UNCERTAIN 约定）
+- ❌ 失败悄悄兜底不标注：catch 吞异常/返回默认值属「未核实猜测」却不留 DEGRADE 标记，零报错隐患长期潜伏 → ai-sideeffect-guard §1 + §2（dscan）
+- ❌ 调试语句/注释掉的代码/多余依赖长期留存：写完就忘，随复杂度积累成噪音 → ai-sideeffect-guard §2（hyg）定期清理（注释代码整段删，git 有历史）
+- ❌ 完成后注意事项不标生命周期：一次性事项（部署后盯 24h）永远赖在 todos，长期事项（10M 行分表）在 @done 归并时被误清 → memo-collector §0 `[once]`/`[long]` 标注
 
 ## 五、权威出处索引（防双源，遇冲突以出处为准）
 
@@ -495,14 +317,14 @@ flowchart TD
 | 需求与 Bug 流程卡点 | dev-guide `SKILL.md` |
 | 索引机制与维护协议 | project-index `SKILL.md` |
 | 备忘收集协议（待办/完成台账） | memo-collector `SKILL.md` |
-| 模块结构 / 构建命令 / 环境限制（后端） | stock-calculator-workflow |
-| 后端功能归属 | 本仓库 `.agents/skills/stock-calculator-service-index/SKILL.md` |
-| 前端功能归属 | 前端仓库 `.agents/skills/stock-calculator-index/SKILL.md` |
-| docs/ 文档规范 | stock-calculator-docs |
-| 代码写法模式 | stock-calculator-backend-dev / stock-calculator-frontend-dev |
-| Native 构建期 / 运行期 | stock-calculator-native-build / stock-calculator-native-runtime-metadata |
+| 模块结构 / 构建命令 / 环境限制（后端） | 后端仓 `.agents/skills/stock-calculator-workflow/SKILL.md` |
+| 后端功能归属 | 后端仓 `.agents/skills/stock-calculator-service-index/SKILL.md` |
+| 前端功能归属 | 前端仓 `.agents/skills/stock-calculator-index/SKILL.md` |
+| 工程文档规范（机制层，跨项目通用） | docs-spec |
+| docs/ 文档规范（项目数据） | 后端仓 `.agents/skills/stock-calculator-docs/SKILL.md`（跨仓只读参照：前端仓规范同域文档时按此口径） |
+| 代码写法模式 | 后端仓 `.../stock-calculator-backend-dev` / 前端仓 `.../stock-calculator-frontend-dev` |
+| Native 构建期 / 运行期 | 后端仓 `.../stock-calculator-native-build` / `.../stock-calculator-native-runtime-metadata` |
 | 新项目接入流程 | dev-init |
-| 不确定标记约定与收集评估 | 本文 §1.8（机制）；CLI 权威口径为全局池 uncertainty-scan.sh 脚本头部 |
-| 静默降级/代码残留约定与收集评估 | 本文 §1.9（机制）；CLI 权威口径为全局池 degrade-scan.py / code-hygiene-scan.py 脚本头部 |
-| 运行时降级观测（dtrig）/ 执行期行为 | 本文 §1.10（机制）；CLI 权威口径为全局池 degrade-trigger.py 脚本头部 |
-| 验证账本 / 完成后注意事项生命周期 | dev-loop §2-4 + §7 第 12 项（[验证] 行）；memo-collector §0/§2/§4（[once]/[long]） |
+| 不确定标记 / 静默降级 / 代码残留 / 运行时观测（机制与评估口径） | ai-sideeffect-guard §1–§5 |
+| 四工具 CLI 参数权威口径 | 各工具脚本头部 `--help`（toolbox 全局池 uscan / dscan / hyg / dtrig） |
+| 验证账本 / 完成后注意事项生命周期 | dev-loop §2 + §7 第 12 项（[验证] 行）；memo-collector §0/§2/§4（[once]/[long]） |

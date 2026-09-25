@@ -1,7 +1,7 @@
 # 命令手册
 ---
 status: active
-updated: 2026-09-19
+updated: 2026-09-25
 ---
 
 > **定位**：全体系命令面（skill 指令 + toolbox CLI + 会话口令 + skill 加载操作）的统一速查，按命令归拢语法与口径，无教学论述。各 skill 正文 §节为唯一规范事实源，本文冲突以正文为准；设计意图与体系导航见 `README.md`。条目为浓缩速查（dev-loop §9 薄指针铁律的登记例外），语义漂移由 `@audit` 第 9 项抽查兜底。
@@ -17,7 +17,8 @@ updated: 2026-09-19
 | `@help` | dev-loop | 指令总表 + 绑定状态（求助入口） | 仅用户 |
 | `@todo` `@todos` `@tdone` `@todo-clean` `@todo-groom` | memo-collector | 待办增/查/结/清/洗 | 仅用户 |
 | `@bind` `@remember` `@forget` `@adr` `@next` `@status` `@merge` `@audit` `@verify` `@done` `@help` | copilot-context | 聊天域独立指令集（`context/chat/`；与 dev-loop 同名不同约） | 仅用户 |
-| `toolbox init/new/check/list/run-hooks/install-hooks/spec/remove/self-test` | agent-toolbox | 脚本工具池管理 | 人机同权 |
+| `toolbox <cmd>`（命令面 SSOT：`toolbox --help`） | agent-toolbox | 脚本工具池管理（生命周期 / 发现执行 / 钩子） | 人机同权 |
+| `toolbox run uscan\|dscan\|hyg\|dtrig` | ai-sideeffect-guard | AI 副作用四工具扫描（不确定 / 静默降级 / 残留 / 运行时触发） | 人机同权 |
 | 恢复口令「继续」等 | dev-loop / copilot-context | 会话恢复 | 仅用户 |
 
 **记法约定**：用户指令一律以 `@` 前缀书写（如 `@bind`、`@todo`），与 `toolbox` CLI 子命令（无前缀，如 `toolbox check`）区分。
@@ -66,7 +67,7 @@ updated: 2026-09-19
 
 ## 2. memo-collector 指令（备忘台账，作用于 `<项目>/context/`）
 
-数据文件：`context/todos.md`（待办，按域分节，`## misc` 恒为末节）+ `context/done.md`（完成，append-only）。条目行格式：`- [ ] [YYYY-MM-DD] (<类型>) [(block)] <一句话事项> (src: ai | 用户)`；类型固定七种：功能/修复/优化/文档/环境/测试/风险（memo-collector §0）。
+数据文件：`context/todos.md`（待办，按域分节，`## misc` 恒为末节）+ `context/done.md`（完成，append-only）。条目行格式：`- [ ] [YYYY-MM-DD] (<类型>) [(block)] <一句话事项> (src: ai | 用户)`；类型固定七种：功能/修复/优化/文档/环境/测试/风险（memo-collector §0）；生命周期标注 `[once]`/`[long]`（memo-collector §0）——once 事件确认后自动转 done、过期附注建议清除；long 每个 @done 强制重评。
 
 | 指令 | 行为 | 口径要点 |
 |---|---|---|
@@ -102,23 +103,21 @@ CURRENT 字段为 `thread: <主线名>`（日常默认 `thread: misc`）；数�
 
 入口 shim：`~/.local/bin/toolbox`（无 AI 时 `toolbox --help` 即说明书；`toolbox <cmd> --help` 即该命令手册）。全局池 `~/.agents/toolbox/scripts/`，项目池 `<repo>/scripts/agent-tools/`（同名覆盖全局）。
 
-| 命令 | 语法 | 作用 |
+**命令面（薄指针，防双源）**：子命令清单、语法与参数一律以 `toolbox --help` / `toolbox <cmd> --help` 为唯一事实源——**命令增删只改元工具与 `agent-toolbox` SKILL.md「命令面」节，本文不再逐条枚举**（历史教训：枚举版曾停在 9 个子命令，实际已 14 个）。当前分组仅供导航：
+
+| 组 | 子命令 | 用途 |
 |---|---|---|
-| `init` | `toolbox init [--project]` | 初始化全局池与 shim（幂等）；`--project` 同时初始化当前仓库项目池 |
-| `new` | `toolbox new <name> [--lang {sh,python}] [--scope {global,project}] [--trigger {bootstrap,audit,cron,pre-commit,manual}] [--summary <一句话>]` | 生成合规脚手架（默认 sh——shell 一等公民，python 兜底） |
-| `check` | `toolbox check <path> [--scope {global,project}] [--force]` | 门禁校验并登记入池（头部块/--help/--json/--self-test/语言门禁/密钥扫描）；**引入新能力需用户确认** |
-| `list` | `toolbox list [--json]` | 现场派生工具清单（名称/摘要/trigger/平台/last_run），无注册表 |
-| `run-hooks` | `toolbox run-hooks <hook> [--quiet] [--json] [--notify]` | 按钩子批量执行 trigger 匹配的工具；任一 FAIL → exit 1 |
-| `install-hooks` | `toolbox install-hooks [--remove]` | 接线 profile/cron/pre-commit（`--remove` 卸载）；**侵入操作，需确认** |
-| `spec` | `toolbox spec` | 打印脚本编写规范 SSOT（写脚本前先看） |
-| `remove` | `toolbox remove <name> [--yes]` | 退役工具移入 `.trash`；**破坏性，需确认** |
-| `self-test` | `toolbox self-test` | 元工具自检 |
+| 生命周期 | `init` / `new` / `check` / `remove` | 初始化池与 shim、生成脚手架、门禁登记入池、退役入 `.trash`（登记新能力与退役均需确认） |
+| 发现与执行 | `list` / `suggest` / `run` / `recent` / `propose` / `approve` | 现场派生清单（无注册表）、按类别推荐、运行工具（支持别名与 `KEY=value` 内联参数）、近期使用摘要、提案入队与批量审批 |
+| 钩子与规范 | `run-hooks` / `install-hooks` / `spec` / `self-test` | 钩子批量执行（任一 FAIL → exit 1）、接线 profile/cron/pre-commit、规范 SSOT、元工具自检 |
 
 **退出码契约**（元工具与所有池内工具一致）：`0` 通过 / `1` 检查未通过 / `2` 自身故障。`run-hooks` 中工具 FAIL → exit 1（供门禁拦截）；工具自身故障 → ERROR 可见但 fail-open 不阻塞。
 
-**既有接线**（dev-loop，唯一侵入点）：会话开场 `toolbox run-hooks bootstrap --quiet`（exit 0 静默继续；非 0 不阻塞恢复，仅附一行 ⚠）；`@audit` 第 11 项 `toolbox run-hooks audit --quiet`。钩子 FAIL 按 memo-collector 口径转 `风险` 待办。
+**既有接线**（dev-loop，唯一侵入点）：会话开场 `toolbox run-hooks bootstrap --quiet`（exit 0 静默继续；非 0 不阻塞恢复，仅附一行 ⚠）；`@audit` 第 11 项 `toolbox run-hooks audit --quiet`。钩子 FAIL 按 memo-collector 口径转 `风险` 待办；`--quiet` 静默一切输出，只以退出码判定（需明细去掉 `--quiet` 重跑）。
 
-**池内工具现状**：全局池现有 `env-doctor`（trigger: bootstrap——会话开场体检）与 `context-lint`（trigger: audit——context 数据面 + skill 指针面机械校验；裸跑=逐条明细，--json=单行结论）；项目池工具随各仓库版本化，以该仓库内 `toolbox list` 现场派生为准（agent-toolbox §命令面）。
+**池内工具现状**：全局池现有 `env-doctor`（trigger: bootstrap——会话开场体检）、`context-lint`（trigger: audit——context 数据面 + skill 指针面机械校验；裸跑=逐条明细，--json=单行结论）与副作用收集四工具 `uncertainty-scan`/`degrade-scan`/`code-hygiene-scan`/`degrade-trigger`（别名 `uscan`/`dscan`/`hyg`/`dtrig`）；项目池工具随各仓库版本化，以该仓库内 `toolbox list` 现场派生为准（agent-toolbox §命令面）。
+
+**副作用四工具速查**：`toolbox run uscan --md /tmp/uncertainty-report.md`（同族：`dscan` / `hyg` / `dtrig`；命中 exit 1，`--self-test` 自诊断）——会话中按需只跑与本轮改动相关的 1 个，`@done`/`@audit`/发布前全跑四个；标记约定与处置口径见 ai-sideeffect-guard §1/§2/§4。
 
 ## 5. 会话口令与 skill 加载
 
@@ -136,7 +135,7 @@ CURRENT 字段为 `thread: <主线名>`（日常默认 `thread: misc`）；数�
 2. **显式调用**：对话中点名加载，如「加载 dev-guide 按 §一 流程推进」；
 3. **跨 IDE 兑底**（自动路由失效时，功能不降级）：prompt 中 @文件或给路径——「先读 `~/.agents/skills/<name>/SKILL.md` 再开工」（global）；项目内为 `<repo>/.agents/skills/<name>/SKILL.md`。
 
-**skill 清单速览**：本仓库 global skill 见 `skills/` 目录（每目录一个 SKILL.md）；各 skill 职责与触发时机速查见 `README.md` §二，场景 → 入口速查见 §3.3。
+**skill 清单速览**：global skill（9 个，跨项目机制）见 `~/.agents/skills/`（每目录一个 SKILL.md）；项目专属规范 skill 与功能归属索引（project-local）在各仓库 `<repo>/.agents/skills/`。各 skill 职责与触发时机速查见 `README.md` §二，场景 → 入口速查见 §3.3。
 
 ## 6. 触发权限矩阵（通用纪律）
 

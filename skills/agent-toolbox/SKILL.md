@@ -16,13 +16,15 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 ## 目录
 
 - 全局池：`~/.agents/toolbox/scripts/`（跨项目通用）
-- 项目池：`<repo>/scripts/agent-tools/`（项目专属，同名覆盖全局）
+- 项目池：`<repo>/scripts/agent-tools/`（项目专属，同名覆盖全局）；`toolbox init --project` 初始化时落 `README.md` 占位——空目录不入 git，占位保证池随仓库 clone 即得
 - **状态**：`~/.agents/toolbox/state/`（last-run-<hook>.json；使用台账 usage-ledger.jsonl——append-only 逐次流水，`list` 的 last_run 由此派生，直连调用不计入）；退役：`.trash/`
 - shim：`~/.local/bin/toolbox`——人与 AI 共用同一命令入口，AI 无专属通道
 
 ## 命令面（`toolbox help` 或 `toolbox <cmd> --help` 看详情）
 
-`init` / `new` / `check` / `list` / `run` / `run-hooks` / `install-hooks` / `spec` / `remove` / `self-test`
+`init` / `new` / `check` / `list` / `suggest` / `run` / `propose` / `approve` / `recent` / `run-hooks` / `install-hooks` / `spec` / `remove` / `self-test`
+
+AI 嵌入流程的四个辅助命令：`suggest`（读 git 变更推断类别，开局跑一次代替盲查）、`propose`（高频收敛入提案队列，不打断执行流）、`approve`（人工批量审批登记）、`recent`（近期使用摘要，断点恢复注入）。
 
 ## 工具分型（v1.5 动词面）
 
@@ -43,7 +45,7 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 
 1. 遇到复杂校验/巡检/环境体检需求：先 `toolbox list --cat <类别>` 按类别查现有工具，有则直接用。需求 → 类目映射：构建/编译 → build；测试/验证/冒烟/回归 → test；部署/发布 → deploy；环境体检/依赖探测 → env；服务起停/进程运维 → ops；文档/索引校验 → docs。全量 `toolbox list` 仅在类别不明或盘点时用，防提示词膨胀；
 2. 无合适工具且常规工具链低效：`toolbox new <name>` 生成脚手架 → 实现逻辑（守 `toolbox spec`）→ **先分型**（服务型加 `verbs:` 头、一次性不加）→ `toolbox check` 登记后使用；
-3. **高频收敛（AI 自注册）**：执行中发现同一条裸命令/复合命令**同一会话内重复 ≥3 次**，或**跨会话再次手写同一命令**（上下文记忆命中）→ 视为稳定需求信号：提炼为工具脚本（`toolbox new` → 实现 → `--json` 预检/guard 类带 `--self-test`）→ 提议 `toolbox check` 入池供后续直接 `toolbox run`。可多个待收敛项**批量提议、一次确认**（铁律 3 的登记门禁不豁免但可合并）；/tmp 下的一次性临时脚本若被二次复用，同样走收编；
+3. **高频收敛（AI 自注册）**：执行中发现同一条裸命令/复合命令**同一会话内重复 ≥3 次**，或**跨会话再次手写同一命令**（上下文记忆命中）→ 视为稳定需求信号：提炼为工具脚本（`toolbox new` → 实现 → `--json` 预检/guard 类带 `--self-test`）→ `toolbox propose` 入提案队列，用户空闲时 `toolbox approve` 批量登记（登记门禁不豁免但可合并）；/tmp 下的一次性临时脚本若被二次复用，同样走收编；
 4. 钩子 FAIL → 按 memo-collector 口径转 `风险` 类待办落 `todos.md`，message 即待办内容；
 5. epic 收尾（@done）：看 `toolbox list` 盘点零使用工具，提议退役（人工确认后 `toolbox remove`）——自注册工具同样受此闭环校验，防止 AI 只增不减；
 6. 发现散落各处的持久脚本（家目录/项目根等）或用户要求整理/收编/迁移脚本：按「散乱脚本治理」流程执行。
@@ -56,6 +58,7 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 2. **一次性豁免**：/tmp 下的临时分析脚本本轮用完即弃，不入池，也不得移入家目录/项目根长期留存；
 3. **历史散放脚本收编**：发现散落脚本时评估——有复用价值 → 合规化（补头部块/`--help`/`--json`/`--self-test`，守 `toolbox spec`）→ `toolbox check` 入池 → 原址删除或改一行薄指针；无价值 → 提议删除（经确认）；
 4. **迁移门禁不豁免**：收编走与新生脚本完全相同的 check 门禁（头部/help/json/自测/stdlib/密钥扫描），不合规即拒收，补齐后再登记。
+5. **构建资产例外（免移动，只包壳）**：被构建链**直接引用**的脚本（npm scripts / Makefile / CI 配置 / Dockerfile 里出现其路径）属**构建资产**——移入池会断链，故**保留原位**，池内只加**合规包装器**：shell 一等公民，`exec node <原位脚本>` + 参数原样透传 + `--help/--json/--self-test` 契约；原址不删、不改路径。判定口径：grep 构建配置是否引用该路径（命中 → 包壳；未命中 → 按第 3 条入池并删原址）。语言双通道不支持 JS/TS 时同样走包壳。
 
 ## 铁律
 
@@ -70,4 +73,5 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 
 - dev-loop §3 开场：`toolbox run-hooks bootstrap --quiet`（exit 0 静默；FAIL/故障不阻塞恢复，仅附一行 ⚠）；
 - dev-loop @audit 第 11 项：`toolbox run-hooks audit --quiet`，FAIL/ERROR 转 ⚠；
+- **`--quiet` 语义（写死）**：静默**一切**输出（含 FAIL 明细），只留退出码（0/1）供判定——需要明细时去掉 `--quiet` 重跑同命令，或裸跑对应工具；
 - 当前挂载：bootstrap → env-doctor（开场环境体检）；audit → context-lint（context/ 数据面 + skill 指针面机械校验，@audit 机械项代跑；裸跑=逐条明细，--json=单行结论）。

@@ -5,7 +5,7 @@ description: 所有编码会话的交互 SOP 底座（回复格式/Token 管控/
 
 # Skill: Dev-Loop (无状态极简交互 SOP - V3.6)
 
-> **管辖边界声明**：本 Skill 仅约束回复格式、Token 管控、日志协议与全局护栏（防死锁/防虚构/破坏性确认/静态强约束/契约保护，见下方「全局护栏协议」），**全项目通用**。代码规范与环境限制优先遵循**当前项目挂载的项目级 Skill 或 AGENTS.md**（如 stock-calculator 项目对应 `stock-calculator-backend-dev` / `stock-calculator-workflow`）；无挂载时以项目自身约定为准。
+> **管辖边界声明**：本 Skill 仅约束回复格式、Token 管控、日志协议与全局护栏（防死锁/防虚构/破坏性确认/静态强约束/契约保护，见下方「全局护栏协议」），**全项目通用**。代码规范与环境限制优先遵循**当前项目挂载的项目级 Skill 或 AGENTS.md**（项目专属规范 skill 挂 project-local `<repo>/.agents/skills/`，如后端仓的 `stock-calculator-backend-dev` / `stock-calculator-workflow`；未自动发现时直接读该路径）；无挂载时以项目自身约定为准。
 
 **冲突裁决链**：绑定 `memory.md` 的显式最新决策 ＞ 项目级 Skill / AGENTS.md ＞ 本 Skill 规约——memory 决策属有意覆盖；推翻项目规范时，以 `[SSOT 修正]` 审计行留痕为准。
 
@@ -102,6 +102,8 @@ last-merge: <YYYY-MM-DD | none>
    `- [YYYY-MM-DD] [验证]: <实际执行的验证命令与结果，如 ./mvnw compile → 通过；tsc --noEmit → 通过>`
    未执行验证的如实写 `未执行: <原因>`，**严禁虚构验证**（对齐全局护栏 5）。[验证] 行计入归并阈值，归并时可压成 memory 一行「近期验证状态」（保留或丢弃最近一次，由归并判断）。@audit 第 12 项抽查 [变更] 与 [验证] 的差（「声称完成 vs 实际验证」缺口）。
 
+**写码副作用标记（代码内，与日志并行）**：本轮写代码遇到「实现未实证」或「失败时猜测性兜底（空 catch / 只记日志 / 返回默认值）」时，按 `ai-sideeffect-guard §1` 在代码内留 `// UNCERTAIN:` / `// DEGRADE:` 标记（DEGRADE 须在兜底前打 `[DEGRADE] <场景key>` 日志）——标记**不落 devlog**、只随代码生存；四工具扫描与高危项处置口径见 `ai-sideeffect-guard §2`/§4（高危按 memo-collector 口径转 `风险` 待办）。
+
 **收尾 Git 指令建议（生成不执行）**：产生 Diff 的轮次收尾时，回复末尾附一段 git 指令建议代码块——基于本轮实际改动文件生成 `git add <文件清单>`（含本轮落盘的 context/ 记忆文件）+ `git commit -m "<一句话说明>"`（措辞参照本轮 devlog 行），块首标注「建议指令，未执行」；**严禁代跑任何 git 写操作**（add/commit/分支/推送一律由用户复制执行）；分支级操作（建分支/合并/切换）仅在用户明示要求时生成；无 Diff 轮次不生成。部署属项目池脚本职责（如 deploy-cloud-run），不在本建议范围。
 
 *(豁免规则：以下轮次**禁止追加任何日志**——① **未产出可留存结论的**纯咨询/排错轮次；② 执行 `@merge`、`@bind` 等协议操作的轮次；③ 除 Lesson / SSOT 修正落盘外，仅维护 `context/` 文档本身的轮次（含日志追加自身产生的写入，防递归记日志）。)*
@@ -117,7 +119,7 @@ last-merge: <YYYY-MM-DD | none>
 ## 3. 状态自恢复与绑定协议 (Bootstrap & Binding)
 
 - **状态恢复**：新会话开场（或 Cmd+R / Ctrl+R 重置后），Agent 优先调用工具读取项目根目录 `context/CURRENT`（内容格式：`epic: <大功能名>`），随后**只读 `context/epics/<大功能名>/memory.md`（蒸馏后的长期记忆与断点）**即可恢复共识——不读 devlog、不依赖对话历史（可先 `head -n 7` 校验头部角色/epic 与 CURRENT 一致）。**若 CURRENT 为 `epic: none` 或文件缺失**（新机器 clone 后的常态——CURRENT 被 gitignore）：视同无活跃 epic，仅提示用户 `@file` 绑定，严禁自行挑选开工；**CURRENT 指向的 epic 目录不存在或头部校验失配**：以 `ls context/epics/` 实际目录为准列出候选、提示重新 `@file` 绑定，严禁自行猜绑。
-- **开场环境检查（agent-toolbox，fail-open）**：若 shim `~/.local/bin/toolbox` 或 `~/.agents/toolbox/` 存在，开场读 CURRENT 前先执行 `toolbox run-hooks bootstrap --quiet`：exit 0 静默继续；非 0（工具 FAIL/自身故障）**严禁阻塞恢复流程**，仅在开场回复末尾附一行 ⚠ 提示（FAIL 明细按 memo-collector 口径转 `风险` 待办）。未初始化 toolbox 的环境直接跳过本项。
+- **开场环境检查（agent-toolbox，fail-open）**：若 shim `~/.local/bin/toolbox` 或 `~/.agents/toolbox/` 存在，开场读 CURRENT 前先执行 `toolbox run-hooks bootstrap --quiet`：exit 0 静默继续；非 0（工具 FAIL/自身故障）**严禁阻塞恢复流程**，仅在开场回复末尾附一行 ⚠ 提示（FAIL 明细按 memo-collector 口径转 `风险` 待办；`--quiet` 无输出，需明细再裸跑一次不带 `--quiet` 的同命令）。未初始化 toolbox 的环境直接跳过本项。
 - **断点指针 (Checkpoint)**：`memory.md` 正文末尾固定维护 `## 断点` 章节，内容恒为一行：`- [断点] 下一步：<具体子任务>`（无待办时写 `等待新子任务`，**严禁留空或过期**）。它是唯一**不可由文件推导**的状态（下一步意图），故必须显式维护。维护规则：任何使「下一步」改变的轮次（Diff / SSOT 修正 / 结论性咨询）收尾时刷新；实现固定用 `sed -i 's|^- \[断点\].*|- [断点] 下一步：<新内容>|' <memory.md> && grep -c '^- \[断点\]' <memory.md>`——sed 匹配零行时会**静默成功**，必须以 grep 结果校验，**非 1 即异常**：0 ＝ 章节缺失→重建 `## 断点`＋断点行；>1 ＝ 重复→去重保留最新（内容含特殊字符时改用 Edit 锚定该行）。恢复收益：读 CURRENT（槽位）+ 读 memory（结论＋断点）→ 直接开工，恢复从「推断」变「查表」，开场白可简化为「继续」。
 - **绑定与切换**：当用户发送 `@file <大功能名>` 或 `@bind <大功能名>` 时，Agent 必须调用工具将 `context/CURRENT` 改写为 `epic: <大功能名>`（忽略路径与后缀，只取大功能名）；**若为切换且旧 epic 的 devlog 存在未归并条目，先按 §4 归并旧 epic 再改写 CURRENT**（不留跨会话积压）；若 `context/epics/<大功能名>/` 不存在，**同时创建该目录及带 §0 文件头部的 `memory.md`（含 `## 断点` 初始行 `- [断点] 下一步：等待拆解`）与 `devlog.md`**。完成后极简确认绑定成功，并按任务形态附一行提示：大需求/复杂迭代建议加载 dev-guide 按流程骨架推进；散修挂 misc 即可，不推流程。**裸调用（`@file` 无参数）**：只读列出 `ls context/epics/` 候选与当前绑定，提示选择，不写任何文件。
 - **杂项挂靠 (misc)**：散修/小改动（不够格建正式 epic）统一挂靠常驻的 `context/epics/misc/`——日志直接落 `misc/devlog.md`，**不要求为此切换 CURRENT**（挂靠点由任务性质决定，CURRENT 只记主战场）；CURRENT 日常默认 `epic: misc`（散修轮次同样走 §2 日志协议，lessons 记 `Ref: misc`）；misc 内散修若长成大功能（连续多轮），`@bind <新名>` 转正，misc memory 归并时只留一行「已转正为 <新名>」索引，日志不搬家；misc 断点恒为「等待散修任务」。
@@ -178,7 +180,7 @@ last-merge: <YYYY-MM-DD | none>
 8. **头部校验**：`head -n 7` 各记忆文件，字段缺失/角色与目录不符即 ⚠；
 9. **指针抽查**：grep 各薄指针（COMMANDS.md 命令手册、dev-guide §3 命令速查、项目索引关联行）的锚点串是否在目标文件真实存在——不存在即 ⚠，当场修指针；改过其他 skill 节号/节名后必查（引用方含 COMMANDS.md），例行审计抽查 2~3 条控成本。
 10. **skill 卫生抽查（事实指针化 + description 预算）**：① 事实指针化——规范类 skill 正文严禁自带易漂移事实（模块结构/领域清单/编译命令/依赖版本号/环境限制），一律指针到项目事实源（workflow 类 skill、项目索引），grep 抽查疑似事实锚点，正文自带非指针出处即 ⚠ 当场改写；② description 预算——description 是路由触发信号非正文：新建目标 ≤~250 字符、硬顶 550（awk FNR==3 length 口径；实测边界 547 可载、995 被系统拒载），超限即把完备症状清单/细节沉入正文 §一，description 只留项目锚点 + 技术栈 + 高频症状关键词；新增 skill 或改过事实性段落/description 后必查，例行抽查 2~3 条控成本。
-11. **toolbox 巡检（agent-toolbox）**：toolbox 已初始化（`~/.agents/toolbox/` 存在）时执行 `toolbox run-hooks audit --quiet`——非空输出即 ⚠ 项（FAIL/工具故障），按 memo-collector 口径转 `风险` 待办；空池/未初始化直接 ✓ 跳过；
+11. **toolbox 巡检（agent-toolbox）**：toolbox 已初始化（`~/.agents/toolbox/` 存在）时执行 `toolbox run-hooks audit --quiet`——**以退出码判定**：exit 0 = ✓，exit 1 = ⚠（`--quiet` 静默一切输出，只看退出码；需 FAIL/ERROR 明细时再跑不带 `--quiet` 的 `toolbox run-hooks audit`，或 `toolbox run cl` 裸跑），按 memo-collector 口径转 `风险` 待办；空池/未初始化直接 ✓ 跳过；
 12. **验证缺口抽查**：grep devlog 尾部最近 2~3 条 `[变更]` 行是否各有同日 `[验证]` 账本行——[变更] 无 [验证]、或 [验证] 写「未执行」无理由即 ⚠，补验证或确认补因；人工抽查（机械化待办，口径同第 9/10 项）。
 
 **修复纪律**：琐碎修复（归并积压、补记、降级 Ref、重写断点）列清单经确认当场执行；结构性修复（拆分、归档）转 `@done` 或用户决策。**审计轮不追加任何日志**（豁免规则适用）。
