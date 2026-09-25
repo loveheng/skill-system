@@ -145,11 +145,11 @@ flowchart LR
 
 | 工具（别名） | 收集面 | 说明 |
 |---|---|---|
-| `degrade-scan`（dscan） | DEGRADE 标记 + 静默失败形状 | 空 catch / 仅日志吞异常 / catch 后返回默认值 / except 仅 pass / JS 仅 console；有 rethrow 的 catch 自动跳过 |
+| `degrade-scan`（dscan） | DEGRADE 标记 + 静默失败形状 | 空 catch / 仅日志吞异常 / catch 后返回默认值 / except 仅 pass / JS 仅 console；有 rethrow 的 catch 自动跳过；白名单抑制已定性有意降级（内置意图词 + 仓库根 `.degrade-whitelist` 每行一正则 + `--whitelist` 覆盖），报告输出抑制数 |
 | `code-hygiene-scan`（hyg） | 调试残留 / 注释掉的代码 / 依赖膨胀 | println/printStackTrace/print( /console.*/DEBUG 开关；注释代码按代码形态判定（说明性注释不误报）；`--deps` 追加 `mvn dependency:analyze`（used-undeclared / unused-declared，较慢默认不跑） |
 
-**评估节奏**：与 §1.8 同——按需 / epic 收尾（@done）/ `@audit` 时跑。处置口径：
-- 静默降级：属「有意降级」补注释说明理由即可；属「未核实猜测」升级为 UNCERTAIN/DEGRADE 标记，高危（正确性/数据一致性）转 todos 风险类；
+**评估节奏**：分级——会话中按需只跑与本轮改动相关的 1 个工具；epic 收尾（@done）/ `@audit` / 发布前全跑四工具（口径见「用法速查」）。处置口径：
+- 静默降级：属「有意降级」补注释说明理由，并登记仓库根 `.degrade-whitelist` 抑制（防每次扫描对同一批已知项重复 triage；修复后删除登记恢复监控）；属「未核实猜测」升级为 UNCERTAIN/DEGRADE 标记，高危（正确性/数据一致性）转 todos 风险类；
 - 代码残留：调试语句删除或降级为受控日志；注释掉的代码整段删除（git 有历史，不需要注释存档）；依赖 undeclared 补声明、unused 移除（先确认非反射/AOT 需要）。
 
 **自诊断**：`toolbox run <工具> --self-test`（金丝雀：坏样本必抓、好样本必不误报）。
@@ -172,7 +172,8 @@ flowchart LR
 **用法速查（四个扫描工具：uscan / dscan / hyg / dtrig）**——任意 git 仓库内直接跑，自动探测仓库根；命中 = exit 1，无命中 = exit 0：
 
 ```sh
-# 全量扫描并导出报告（四个按需跑；@done / @audit 时建议全跑）
+# 分级节奏：会话中按需只跑与本轮改动相关的 1 个（动 catch/兜底 → dscan；动标记注释 → uscan；残留清理 → hyg；部署/发布观测 → dtrig）
+# @done / @audit / 发布前：全跑四工具并导出报告
 toolbox run uscan --md /tmp/uncertainty-report.md   # §1.8 不确定标记（UNCERTAIN/TODO/隐患词）
 toolbox run dscan --md /tmp/degrade-report.md       # §1.9 静默降级（DEGRADE + 空catch/吞异常/兜底默认值）
 toolbox run hyg   --md /tmp/hygiene-report.md       # §1.9 代码残留（调试语句/注释代码）
@@ -189,7 +190,7 @@ toolbox run <工具> --json                 # 一行 JSON 契约结论（门禁/
 toolbox run <uscan|dscan|hyg|dtrig> --self-test
 ```
 
-- **何时跑**：按需 / epic 收尾（@done）/ `@audit` / 发布前；新仓库首次跑一次建立基线（命中先评估存量，后续只关注增量）。
+- **何时跑（分级，防四报告噪音坟场）**：会话中按需 → 只跑与本轮改动相关的 1 个工具；epic 收尾（@done）/ `@audit` / 发布前 → 全跑四个；新仓库首次跑一次建立基线（命中先评估存量，有意降级登记白名单，后续只关注增量）。
 - **参数权威口径**：各工具 `--help` 与脚本头部注释为 SSOT（见 §五），此处为速查。
 
 ### 1.10 执行期行为与完成后注意事项
@@ -200,6 +201,7 @@ toolbox run <uscan|dscan|hyg|dtrig> --self-test
 - **日志约定**：DEGRADE 标记处的降级分支在兜底前打一条含 `[DEGRADE] <场景key>` 的日志（如 `log.warn("[DEGRADE] persona-redis-unavailable fallback to code persona")`）；场景 key 用 kebab-case，与代码位置语义对齐。
 - **收集**：`toolbox run dtrig`（degrade-trigger，速查见 §1.9 末）——纯 grep 非 watch、无常驻进程；默认扫 `/tmp/logs`（本项目 jm 模块日志惯例），`--logs <目录|文件>` 可指定多个，`--md` 导出「场景 × 次数 × 最近触发 × 文件 × 样例」。
 - **用法**：高频场景（占大头）= 该路径真实承载流量 → 先定性有意降级（降级文案合理即可）或未核实猜测（补告警 / 转 todos 风险类）；**静态命中而零触发的可降级观察**（长期零触发 = 路径可能已死）。
+- **存量零命中是预期而非漏报**：dtrig 只对本约定启用后新写的 `[DEGRADE]` 日志行有数据（存量代码没有这类日志行），早期零命中是常态，不要解读为「没有降级发生」；随新代码写 DEGRADE 标记+日志，数据逐轮积累。
 
 **② 验证账本（过程记录：声称完成 vs 实际验证）**
 - 问题：AI 声称「完成」但没真跑验证（编译过、看着对、断言空）——「莫名其妙问题」的头号来源。这类无法从代码扫出，属会话元数据。
