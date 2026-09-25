@@ -21,7 +21,7 @@ description: 新项目/新仓库首次接入 AI 开发 skill 体系的一次性�
 
 1. **项目形态判定**：编码项目 or 聊天/助理工作区？后者只需 copilot-context §0 的 `context/chat/` 骨架（CURRENT + threads/misc + profile/lessons/decisions），本清单其余步骤跳过。
 2. **context/ 记忆骨架**：`context/CURRENT`（`epic: misc`）+ `epics/misc/`（memory.md + devlog.md）+ lessons.md；todos.md/done.md 可缺省（memo-collector §0：文件缺失时现写模板）——目录契约见 dev-loop §0。**骨架捷径**：`toolbox run scaffold` 可一键生成（幂等不覆盖）。
-3. **事实源 skill（workflow 类）**：从 README/构建脚本/CI **现场实测取证**提炼——模块结构、包名、构建/测试命令、环境硬约束（终端/写入限制）。结构与粒度参照 stock-calculator-workflow；内容严禁虚构，命令至少实测跑通一条。
+3. **事实源 skill（workflow 类）**：从 README/构建脚本/CI **现场实测取证**提炼——模块结构、包名、构建/测试命令、环境硬约束（终端/写入限制）。结构与粒度参照既有项目实例（样例：后端仓 project-local 的 stock-calculator-workflow，非全局）；内容严禁虚构，命令至少实测跑通一条。
 4. **project-local 索引**：按 project-index `template.md` 建 `<repo>/.agents/skills/<repo-name>-index/SKILL.md`——只登记域级锚点，禁止一次性铺满（project-index「表格式规范」「维护协议」）。
 5. **项目规范 skill（按需）**：从现有代码提炼写法模式（backend/frontend 类，粒度对齐既有项目规范 skill）；小项目可跳过——workflow + 索引即最小可用集。**落点与索引同级**：一律建在本仓 `<repo>/.agents/skills/`（project-local，随仓库版本化），**不进 global**（global 只放跨项目机制）；新建守 README §4.4（description 预算 + 事实指针化）。
    - **docs 单独判定（条件化，不留空位）**：项目存在 `docs/`（或计划建）→ 建 `<repo>-docs/SKILL.md`，且**只填三项项目数据**：① 域目录表（域 → 定位）；② 本仓 lint/收集脚本路径；③ 本仓例外。规范机制一律指针到 `docs-spec §1`–§7，**严禁复制规范正文**（防双源）。尤其注意：**文档头部区块（`status`/`updated` frontmatter、写后自检 lint、三层索引机制）是跨项目全局 SSOT**——初始化生成默认文档规范 skill 时只填充项目本地数据（域目录表 / 本仓 lint 脚本 / 本仓例外），**不得把头部区块规范本身复制进项目 skill**（否则全局升级时各项目副本漂移，踩 `docs-spec §7` 反模式）。无 `docs/` 则整项跳过——**禁止为对齐清单而建空骨架**。
