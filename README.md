@@ -114,7 +114,7 @@ flowchart TD
 问题：AI 写码时遇到不确定点（未实证的接口行为、猜测的边界、绕坑的权宜实现）往往「直接写」，只留一条普通「注意」注释——项目复杂度增长后，这些散落的不确定点就是隐患与「莫名其妙问题」的来源。对策：**统一标记 → 机械收集 → 定期评估**，全程只复用既有容器（代码注释 + todos.md），不为收集新增任何文件（对齐 §1.7 原则）。
 
 - **标记约定**：AI 写码遇不确定点统一写 `// UNCERTAIN: <一句话说明：哪里不确定 + 风险是什么>`。与 `TODO`（计划做）和普通防腐注释（结论已确定）区分——只有「不确定/未实证」才用 UNCERTAIN。
-- **收集**：`toolbox run uncertainty-scan`（全局池工具，别名 `uscan`，任意 git 仓库通用，自动探测仓库根）。扫描 `UNCERTAIN`/`TODO`/`FIXME`/`XXX`/`HACK` + 中文隐患词（隐患/待确认/待验证/不确定等），覆盖 Java/Python/Shell/TS/Go/Rust 等 14 种语言，自动排除构建目录；有命中 exit 1，`--md <文件>` 导出「位置 + 内容」报告，`--root/--whitelist/--pattern` 可覆盖默认。
+- **收集**：`toolbox run uncertainty-scan`（全局池工具，别名 `uscan`，任意 git 仓库通用，自动探测仓库根）。扫描 `UNCERTAIN`/`TODO`/`FIXME`/`XXX`/`HACK` + 中文隐患词（隐患/待确认/待验证/不确定等），覆盖 Java/Python/Shell/TS/Go/Rust 等 14 种语言，自动排除构建目录；有命中 exit 1，`--md <文件>` 导出「位置 + 内容」报告，`--root/--whitelist/--pattern` 可覆盖默认。统一三工具速查见 §1.9 末尾「用法速查」。
 - **白名单（防误报）**：内置过滤降级文案类误报（「暂不可用」「降级响应」等撞上中文隐患词的行）+ 仓库根 `.uncertainty-whitelist`（每行一个正则，`#` 为注释行，放本项目专属误报模式）。
 - **评估节奏**：按需跑 / epic 收尾（@done）/ `@audit` 时跑。高危项（影响正确性、数据一致性、安全边界）经确认转 `context/todos.md` 风险类待办；低危项（已知降级、有版本规划的）保留注释即可，不落待办。
 - **新仓库接入**：零操作，首次运行即用（git 仓库根自动探测）；误报多时在仓库根补一个 `.uncertainty-whitelist` 文件。
@@ -162,6 +162,28 @@ flowchart LR
     H -->|高危| I["context/todos.md 风险类"]
     H -->|残留| J[直接清理]
 ```
+
+**用法速查（三扫描工具：uscan / dscan / hyg）**——任意 git 仓库内直接跑，自动探测仓库根；命中 = exit 1，无命中 = exit 0：
+
+```sh
+# 全量扫描并导出报告（三个按需跑；@done / @audit 时建议全跑）
+toolbox run uscan --md /tmp/uncertainty-report.md   # §1.8 不确定标记（UNCERTAIN/TODO/隐患词）
+toolbox run dscan --md /tmp/degrade-report.md       # §1.9 静默降级（DEGRADE + 空catch/吞异常/兜底默认值）
+toolbox run hyg   --md /tmp/hygiene-report.md       # §1.9 代码残留（调试语句/注释代码）
+toolbox run hyg   --deps                            # 追加依赖膨胀分析（mvn dependency:analyze，较慢，单独跑）
+
+# 覆盖默认
+toolbox run uscan --root <目录>           # 自定义扫描根
+toolbox run uscan --whitelist <文件>      # 自定义白名单（每行一个正则，# 注释行）
+toolbox run uscan --pattern <正则>        # 覆盖标记词
+toolbox run <工具> --json                 # 一行 JSON 契约结论（门禁/钩子消费）
+
+# 自诊断（金丝雀：坏样本必抓、好样本必不误报）
+toolbox run <uscan|dscan|hyg> --self-test
+```
+
+- **何时跑**：按需 / epic 收尾（@done）/ `@audit` / 发布前；新仓库首次跑一次建立基线（命中先评估存量，后续只关注增量）。
+- **参数权威口径**：各工具 `--help` 与脚本头部注释为 SSOT（见 §五），此处为速查。
 
 ## 二、Skill 清单（功能与触发时机）
 
@@ -279,7 +301,7 @@ flowchart TD
 - **巡检提醒**：会话开场 dev-loop §3 自动跑 `toolbox run-hooks bootstrap --quiet`（exit 0 静默）；`@audit` 第 11 项跑 `audit` 钩——FAIL 按 memo-collector 口径转 `风险` 待办；
 - **收编散放脚本**：评估复用价值 → 合规化补头部/help/json/自测 → `toolbox check` 入池 → 原址删除或改一行薄指针。
 
-**现状**（2026-09-19）：试点工具 `env-doctor`（本地运行时环境体检，trigger: bootstrap——会话开场自动体检）；audit 钩挂载 `context-lint`（context 数据面 + skill 指针面机械校验——@audit 的断点/头部/积压/尺寸/孤儿/待办格式与指针锚点存在性各机械项由其代跑，中文数字节号与裸 § 自引用仍人工抽查）；同日 spec 升 v1.1：语言双通道——shell（.sh）一等公民优先，python 兜底，`toolbox new` 默认出 sh 脚手架，shell 门禁含 shebang + `sh -n` 语法检查，manual 类不限时；历史散放脚本已收编 8 项入项目池 `scripts/agent-tools/`（index-lint、docs-index-lint、run-regression、run-e2e、run-native-smoke、run-native-rest、run-jvm-watch、deploy-cloud-run，长任务 --json=预检语义），项目根不再散放持久脚本；`install-hooks` 未安装（决策：不接 pre-commit/profile，按需人工触发）；脚本池与快速上手见 `~/.agents/toolbox/README.md`。
+**现状**（2026-09-25）：试点工具 `env-doctor`（本地运行时环境体检，trigger: bootstrap——会话开场自动体检）；audit 钩挂载 `context-lint`（context 数据面 + skill 指针面机械校验——@audit 的断点/头部/积压/尺寸/孤儿/待办格式与指针锚点存在性各机械项由其代跑，中文数字节号与裸 § 自引用仍人工抽查）；同日 spec 升 v1.1：语言双通道——shell（.sh）一等公民优先，python 兜底，`toolbox new` 默认出 sh 脚手架，shell 门禁含 shebang + `sh -n` 语法检查，manual 类不限时；历史散放脚本已收编 8 项入项目池 `scripts/agent-tools/`（index-lint、docs-index-lint、run-regression、run-e2e、run-native-smoke、run-native-rest、run-jvm-watch、deploy-cloud-run，长任务 --json=预检语义），项目根不再散放持久脚本；2026-09-25 新增 AI 副作用收集三工具入全局池（`uncertainty-scan`/`degrade-scan`/`code-hygiene-scan`，机制见 §1.8/§1.9，用法速查见 §1.9 末）；`install-hooks` 未安装（决策：不接 pre-commit/profile，按需人工触发）；脚本池与快速上手见 `~/.agents/toolbox/README.md`。
 
 ### 3.5 环境硬约束（workflow 摘要）
 
