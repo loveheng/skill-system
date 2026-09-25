@@ -50,8 +50,8 @@ updated: 2026-09-19
 - 行为：双文件压缩——① 绑定 epic devlog 提炼进 `memory.md` 并清空追加区（`[SSOT 修正]` 条目最高优先级，严禁新旧并存）；② `lessons.md` 底部流水去重归纳进正文；两处头部 `total-merged`+1、`last-merge` 刷新。
 - 与自动触发（任一日志 ≥5 条）同一套流程；misc 挂靠日志同样适用。
 
-### `@audit` —— 十一项质检（dev-loop §7）
-- **账账相符**（记忆与 skill 文档内部一致）逐项输出 `✓/⚠ + 动作建议`：断点新鲜度 / 新旧并存 / devlog 积压 SSOT 修正 / 记忆补记 / lessons 与规范去重 / 尺寸健康（memory >150 行 ⚠）/ 孤儿 epic / 头部校验 / 指针抽查 / skill 卫生（事实指针化 + description 预算）/ toolbox 巡检。
+### `@audit` —— 十二项质检（dev-loop §7）
+- **账账相符**（记忆与 skill 文档内部一致）逐项输出 `✓/⚠ + 动作建议`：断点新鲜度 / 新旧并存 / devlog 积压 SSOT 修正 / 记忆补记 / lessons 与规范去重 / 尺寸健康（memory >150 行 ⚠）/ 孤儿 epic / 头部校验 / 指针抽查 / skill 卫生（事实指针化 + description 预算）/ toolbox 巡检 / 验证缺口抽查（[变更] 行各有同日 [验证] 账本）。
 - 建议时机：多机同步、分支切换、久别重开后。**Agent 严禁自主执行**；琐碎修复列清单经确认当场执行。
 
 ### `@verify <epic|lessons|all>` —— 账实对账（dev-loop §7）
