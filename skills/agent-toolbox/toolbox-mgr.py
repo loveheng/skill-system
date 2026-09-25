@@ -52,6 +52,7 @@ MARKER_BEGIN = "# >>> toolbox-mgr >>>"
 MARKER_END = "# <<< toolbox-mgr <<<"
 CRON_TAG = "# toolbox-mgr:cron"
 TRIGGERS = ("bootstrap", "audit", "cron", "pre-commit", "manual")
+VERBS = ("run", "stop", "status", "restart")  # 服务类动词：经 run 路由，脚本须支持同名首参
 IS_WIN = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
 
@@ -172,6 +173,14 @@ def validate_meta(meta):
         for k in [x.strip() for x in raw_params.split(",") if x.strip()]:
             if not re.match(r"^[A-Z][A-Z0-9_]*$", k):
                 problems.append("params 非法（大写字母/数字/下划线，逗号分隔）: %s" % k)
+    raw_verbs = meta.get("verbs")
+    if raw_verbs is not None:
+        for v in [x.strip() for x in raw_verbs.split(",") if x.strip()]:
+            if v not in VERBS:
+                problems.append("verbs 非法（可选: %s）: %s" % ("|".join(VERBS), v))
+    raw_cat = meta.get("cat")
+    if raw_cat is not None and not NAME_RE.match(raw_cat):
+        problems.append("cat 非法（同 name 规则，单个类别）: %s" % raw_cat)
     return problems
 
 
@@ -316,6 +325,9 @@ def collect():
                            if x.strip()],
                  "params": [x.strip() for x in (meta.get("params") or "").split(",")
                             if x.strip()],
+                 "verbs": [x.strip() for x in (meta.get("verbs") or "").split(",")
+                           if x.strip()],
+                 "cat": meta.get("cat") or "",
                  "summary": meta.get("summary", ""),
                  "problems": problems, "overridden": False}
             prev = index.get(name)
@@ -399,18 +411,28 @@ def load_last_runs():
 
 def cmd_list(args):
     entries = collect()
+    if getattr(args, "cat", None):
+        entries = [e for e in entries if e["cat"] == args.cat]
     last_runs = load_last_runs()
     if args.json:
         slim = []
         for e in entries:
             d = {k: e[k] for k in ("name", "scope", "trigger", "platform",
-                                   "alias", "summary", "problems", "file")}
+                                   "alias", "verbs", "cat", "summary", "problems", "file")}
             d["last_run"] = last_runs.get(e["name"])
             slim.append(d)
         print(json.dumps(slim, ensure_ascii=False, indent=2))
         return 0
     if not entries:
-        print("(空) 工具池为空。用 `toolbox new <name>` 生成脚手架，或 `toolbox check <path>` 登记现有脚本。")
+        cat = getattr(args, "cat", None)
+        print("(空) 无%s工具。用 `toolbox new <name>` 生成脚手架，或 `toolbox check <path>` 登记现有脚本。"
+              % (("类别 %s 的" % cat) if cat else ""))
+        if cat:
+            known = sorted({e["cat"] for e in collect() if e["cat"]})
+            if cat not in known:
+                print("提示: 类别 %r 不存在。池内现有类别: %s（惯例类目: "
+                      "build=构建 test=测试 deploy=部署 env=环境 ops=服务运维 docs=文档校验）"
+                      % (cat, ",".join(known) or "无"))
         return 0
     rows = []
     for e in entries:
@@ -419,6 +441,10 @@ def cmd_list(args):
             extra += "  (被项目池覆盖)"
         if e["problems"]:
             extra += "  ⚠ " + e["problems"][0]
+        if e["cat"]:
+            extra += "  [%s]" % e["cat"]
+        if e["verbs"]:
+            extra += "  [服务型 verbs: %s]" % ",".join(e["verbs"])
         if e["alias"]:
             extra += "  (别名: %s)" % ",".join(e["alias"])
         rows.append((e["name"], e["scope"], e["trigger"],
@@ -650,6 +676,10 @@ def cmd_run(args):
     e = resolve_tool(key)
     if e is None:
         return 2
+    # REMAINDER 会保留字面 "--"，此处剔除以兼容旧写法 "toolbox run <tool> -- <args>"
+    tool_args = list(args.tool_args)
+    if tool_args and tool_args[0] == "--":
+        tool_args.pop(0)
     if e["problems"]:
         print("✗ 工具不合规，禁止运行: [%s] %s\n  - %s"
               % (e["scope"], e["name"], "; ".join(e["problems"][:3])))
@@ -659,7 +689,7 @@ def cmd_run(args):
         return 2
     inline = {}
     passthrough = []
-    for a in args.tool_args:
+    for a in tool_args:
         m = re.match(r"^([A-Z][A-Z0-9_]*)=(.*)$", a, re.S)
         if m:
             inline[m.group(1)] = m.group(2)
@@ -989,7 +1019,7 @@ def cmd_new(args):
 # ---------- spec：脚本编写规范（唯一事实源，内嵌本文件） ----------
 
 SPEC_TEXT = '''\
-toolbox 脚本编写规范 v1.4（唯一事实源——由元工具内嵌，任何副本不具效力）
+toolbox 脚本编写规范 v1.5（唯一事实源——由元工具内嵌，任何副本不具效力）
 
 0. 宪法
   - 语言双通道，shell 优先：shell（POSIX sh / bash）为一等公民，优先实现；
@@ -1032,6 +1062,24 @@ toolbox 脚本编写规范 v1.4（唯一事实源——由元工具内嵌，任�
     `toolbox run` 运行前自动注入为同名环境变量（已导出的环境变量优先于配置文件）；
     缺参当场打印提醒（不阻塞——工具自身预检仍兜底）。脚本内取参应 env 优先、
     本地兜底（如 .env），与环境变量注入语义一致。
+  - 类别声明（可选，v1.5）：头部块加 `cat: <类别>`（单个，同 name 命名规则；惯例类目
+    build=构建/编译、test=测试/验证/冒烟/回归、deploy=部署/发布、env=环境体检/依赖探测、
+    ops=服务起停/进程运维、docs=文档/索引校验，不强制枚举——类目由使用者约定，元工具只做
+    精确匹配）。`toolbox list --cat <类别>` 按类别过滤，AI/人按需拉一小片清单而非全表，
+    防提示词膨胀；查空类别时若类目不存在，list 会回显池内现有类别与惯例映射供自纠错。
+  - 服务类动词声明（可选，v1.5，仅服务型工具）：头部块加 `verbs: run,stop,status,restart`
+    （小写、逗号分隔，可子集，取值仅限这四个）。**工具分型口径**：拉起/管理长驻进程
+    （应用、监工、代理）= 服务型，应声明 verbs；跑完即退（校验、巡检、构建、部署）
+    = 一次性型，**不得声明 verbs**——一次性工具动词面只有 run。声明后元工具提供
+    前置动词路由：`toolbox <verb> <tool> [args...]` 等价于 `toolbox run <tool> <verb> [args...]`，
+    动词作为脚本首参传入；脚本须自行实现声明了的每个同名子命令（run 可省略——
+    无动词即默认启动），且 stop 幂等（未运行 exit 0）、status 可安全重复执行、
+    restart 单目标语义（无法单目标则报错）。**run 宜提供后台模式**（惯例参数
+    `--daemon`/`-d`）：进程 nohup 脱终端存活、日志仍定向文件；启动后做存活
+    确认（秒级 sleep + kill -0），即刻退出则回显日志尾部并 exit 1。stop/status
+    按进程特征匹配（如命令行模式），对前台/后台两种启动方式行为一致，不依赖
+    pidfile。未声明 verbs 的工具不受影响，
+    任意参数仍经 REMAINDER 原样透传；对其用前置动词被拒绝（exit 2）。
   - 灵活参数（临时内联）：`toolbox run <工具> KEY=value [其他参数]`——KEY=value
     形式的实参被元工具识别为参数覆盖（优先级最高，一次性生效不落盘，不透传脚本），
     其余参数原样透传。适合临时换库口令/换目标等一次性场景；值含空格加引号。
@@ -1184,7 +1232,8 @@ def cmd_self_test(args):
 def build_parser():
     ap = argparse.ArgumentParser(
         prog="toolbox",
-        description="全局脚本工具箱管理器（规范 SSOT + 执行器）——toolbox spec 查看编写规范")
+        description="全局脚本工具箱管理器（规范 SSOT + 执行器）——toolbox spec 查看编写规范；"
+                    "服务类动词 stop/status/restart 可前置：toolbox <verb> <tool> [args...]（工具须声明 verbs）")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("init", help="初始化全局池与 shim（幂等）")
@@ -1209,11 +1258,13 @@ def build_parser():
 
     p = sub.add_parser("list", help="派生工具清单")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--cat", help="按类别过滤（头部 cat 字段，如 build/test/deploy/env/ops）")
     p.set_defaults(fn=cmd_list)
 
     p = sub.add_parser("run", help="按名称或短别名运行工具（KEY=value 内联覆盖参数，其余原样透传）")
     p.add_argument("tool", help="工具名称或头部 alias 字段中的短别名")
-    p.add_argument("tool_args", nargs="*",
+    # REMAINDER：tool 之后的 token 全部原样透传（含 --stop 等选项样式，不再需要 -- 分隔）
+    p.add_argument("tool_args", nargs=argparse.REMAINDER,
                    help="KEY=value 为参数覆盖（不透传）；其余参数原样透传给工具")
     p.set_defaults(fn=cmd_run)
 
@@ -1242,6 +1293,19 @@ def build_parser():
 
 
 def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+    # 动词路由（v1.5）：toolbox <verb> <tool> [args...] → toolbox run <tool> <verb> [args...]
+    # 仅当工具头部声明了该 verbs 时生效；未声明动词的工具走既有透传，行为不变。
+    if len(argv) >= 2 and argv[0] in VERBS and argv[0] != "run":
+        verb, key = argv[0], argv[1]
+        e = resolve_tool(key)
+        if e is not None:
+            if verb not in e["verbs"]:
+                print("✗ 工具 %s 未声明 verbs（当前: %s）——请用 toolbox run %s <verb> ... 透传"
+                      % (e["name"], ",".join(e["verbs"]) or "无", key))
+                return 2
+            argv = ["run", key, verb] + list(argv[2:])
     args = build_parser().parse_args(argv)
     return args.fn(args)
 

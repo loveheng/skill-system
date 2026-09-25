@@ -22,7 +22,17 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 
 ## 命令面（`toolbox help` 或 `toolbox <cmd> --help` 看详情）
 
-`init` / `new` / `check` / `list` / `run-hooks` / `install-hooks` / `spec` / `remove` / `self-test`
+`init` / `new` / `check` / `list` / `run` / `run-hooks` / `install-hooks` / `spec` / `remove` / `self-test`
+
+## 工具分型（v1.5 动词面）
+
+工具按生命周期分两型，由头部字段自声明，元工具不猜测：
+
+- **服务型（持续运行）**：头部声明 `verbs: run,stop,status,restart`（可子集，如仅 `run,stop,status`）。获得前置动词路由 `toolbox <verb> <tool> [args...]`（等价 `toolbox run <tool> <verb> ...`）。声明了哪个动词就必须实现哪个子命令：`stop` 幂等（未运行报未在运行、exit 0）、`status` 全量输出可安全重复执行、`restart` 单目标语义（无法单目标则明确报错）。`run` 宜提供后台模式（惯例 `--daemon`/`-d`：nohup 脱终端、日志仍定向文件、启动后存活确认）；stop/status 按进程特征匹配，前后台两种启动方式行为一致。
+- **一次性型**：不声明 verbs（默认即此），动词面只有 `run`——`toolbox run <tool> [args...]`，REMAINDER 原样透传。对一次性工具用前置动词会被元工具拒绝（exit 2）。
+- 判断口径：脚本会拉起/管理**长驻进程**（应用、监工、代理）属服务型；跑完即退（校验、巡检、构建、部署）属一次性型。`toolbox list` 输出可看到 verbs 声明，分型一眼可辨。
+
+细则以 `toolbox spec` 为 SSOT。
 
 ## 退出码契约（元工具与所有工具脚本一致）
 
@@ -31,11 +41,12 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 
 ## AI 使用时机
 
-1. 遇到复杂校验/巡检/环境体检需求：先 `toolbox list` 查现有工具，有则直接用；
-2. 无合适工具且常规工具链低效：`toolbox new <name>` 生成脚手架 → 实现逻辑（守 `toolbox spec`）→ `toolbox check` 登记后使用；
-3. 钩子 FAIL → 按 memo-collector 口径转 `风险` 类待办落 `todos.md`，message 即待办内容；
-4. epic 收尾（@done）：看 `toolbox list` 盘点零使用工具，提议退役（人工确认后 `toolbox remove`）；
-5. 发现散落各处的持久脚本（家目录/项目根等）或用户要求整理/收编/迁移脚本：按「散乱脚本治理」流程执行。
+1. 遇到复杂校验/巡检/环境体检需求：先 `toolbox list --cat <类别>` 按类别查现有工具，有则直接用。需求 → 类目映射：构建/编译 → build；测试/验证/冒烟/回归 → test；部署/发布 → deploy；环境体检/依赖探测 → env；服务起停/进程运维 → ops；文档/索引校验 → docs。全量 `toolbox list` 仅在类别不明或盘点时用，防提示词膨胀；
+2. 无合适工具且常规工具链低效：`toolbox new <name>` 生成脚手架 → 实现逻辑（守 `toolbox spec`）→ **先分型**（服务型加 `verbs:` 头、一次性不加）→ `toolbox check` 登记后使用；
+3. **高频收敛（AI 自注册）**：执行中发现同一条裸命令/复合命令**同一会话内重复 ≥3 次**，或**跨会话再次手写同一命令**（上下文记忆命中）→ 视为稳定需求信号：提炼为工具脚本（`toolbox new` → 实现 → `--json` 预检/guard 类带 `--self-test`）→ 提议 `toolbox check` 入池供后续直接 `toolbox run`。可多个待收敛项**批量提议、一次确认**（铁律 3 的登记门禁不豁免但可合并）；/tmp 下的一次性临时脚本若被二次复用，同样走收编；
+4. 钩子 FAIL → 按 memo-collector 口径转 `风险` 类待办落 `todos.md`，message 即待办内容；
+5. epic 收尾（@done）：看 `toolbox list` 盘点零使用工具，提议退役（人工确认后 `toolbox remove`）——自注册工具同样受此闭环校验，防止 AI 只增不减；
+6. 发现散落各处的持久脚本（家目录/项目根等）或用户要求整理/收编/迁移脚本：按「散乱脚本治理」流程执行。
 
 ## 散乱脚本治理（登记制）
 
