@@ -148,7 +148,7 @@ flowchart LR
 | `degrade-scan`（dscan） | DEGRADE 标记 + 静默失败形状 | 空 catch / 仅日志吞异常 / catch 后返回默认值 / except 仅 pass / JS 仅 console；有 rethrow 的 catch 自动跳过；白名单抑制已定性有意降级（内置意图词 + 仓库根 `.degrade-whitelist` 每行一正则 + `--whitelist` 覆盖），报告输出抑制数 |
 | `code-hygiene-scan`（hyg） | 调试残留 / 注释掉的代码 / 依赖膨胀 | println/printStackTrace/print( /console.*/DEBUG 开关；注释代码按代码形态判定（说明性注释不误报）；`--deps` 追加 `mvn dependency:analyze`（used-undeclared / unused-declared，较慢默认不跑） |
 
-**评估节奏**：分级——会话中按需只跑与本轮改动相关的 1 个工具；epic 收尾（@done）/ `@audit` / 发布前全跑四工具（口径见「用法速查」）。处置口径：
+**评估节奏**：分级——会话中按需只跑与本轮改动相关的 1 个工具；epic 收尾（@done）/ `@audit` / 发布前全跑四工具（口径见「用法速查」；完整走查示例见 §1.11）。处置口径：
 - 静默降级：属「有意降级」补注释说明理由，并登记仓库根 `.degrade-whitelist` 抑制（防每次扫描对同一批已知项重复 triage；修复后删除登记恢复监控）；属「未核实猜测」升级为 UNCERTAIN/DEGRADE 标记，高危（正确性/数据一致性）转 todos 风险类；
 - 代码残留：调试语句删除或降级为受控日志；注释掉的代码整段删除（git 有历史，不需要注释存档）；依赖 undeclared 补声明、unused 移除（先确认非反射/AOT 需要）。
 
@@ -231,6 +231,87 @@ flowchart LR
     L -->|[once] 事件确认完成| M[done.md 自动流转]
     L -->|[long] @done| N[强制逐条重评]
 ```
+
+### 1.11 示例用法：一条隐患的完整生命周期（标记 → 扫描 → 白名单 → 触发 → todos）
+
+> 以下用一条「Redis 降级」路径把 §1.8–§1.10 的机制从头走到尾，命令在任意 git 仓库可直接照跑。
+
+**Step 0 · 项目接入**（一次性，dev-init §1 第 7 步）：仓库根自动建两个白名单空骨架（仅头注释，禁预置条目）：
+
+```bash
+.uncertainty-whitelist   # uscan 误报白名单
+.degrade-whitelist       # dscan 有意降级白名单
+```
+
+**Step 1 · AI 写码：标不确定 + 标降级**（开发者唯一要记的动作）：
+
+```java
+public String getPersona(String key) {
+    try {
+        return redisCache.get(key);
+    } catch (Exception e) {
+        // DEGRADE: Redis 不可用回落代码 persona，是否等价需产品确认
+        log.warn("[DEGRADE] persona-redis-unavailable fallback to code persona");
+        return CODE_PERSONA;
+    }
+}
+
+// UNCERTAIN: 该接口未实证——tz 参数缺失时是否按 UTC 处理
+private OffsetDateTime parseAt(String raw, String tz) { /* ... */ }
+```
+
+口径：`UNCERTAIN:` 表整个实现不确定；`DEGRADE:` 表失败时兜底且兜底是猜测，兜底前打 `[DEGRADE] <场景key>` 日志（Step 4 dtrig 消费）。
+
+**Step 2 · 扫描：会话中只跑与本轮改动相关的 1 个，全跑留给 @done/@audit**：
+
+```bash
+toolbox run dscan --md /tmp/degrade-report.md      # 动了 catch/兜底 → 只跑这个
+toolbox run uscan --md /tmp/uncertainty-report.md  # 动了标记注释 → 只跑这个
+```
+
+输出（有命中 = exit 1，白名单抑制数在结论行可观测）：
+
+```
+✗ 发现 1 处静默降级/吞异常路径（标记+形状），白名单抑制 45 处已知项…
+| src/main/java/.../PersonaStore.java:32 | DEGRADE标记 | // DEGRADE: Redis 不可用回落代码 persona… |
+```
+
+**Step 3 · 定性分流：有意降级登记白名单，高危转 todos**：
+
+场景 A——定性为**有意降级**（设计行为合理，不必每次重复 triage）：仓库根白名单追加一行，下次扫描自动抑制：
+
+```
+# .degrade-whitelist（追加）
+persona-redis-unavailable
+```
+
+场景 B——定性为**高危**（正确性/数据一致性，未核实）：不登记白名单（保持每次报），转 todos 风险类并标 `[long]`（memo-collector §0）：
+
+```
+# context/todos.md · misc 分节（追加）
+- [ ] [2026-09-25] (风险) [long] PersonaStore.getPersona: Redis 不可用静默回落代码 persona，persona 语义等价未核实 (src: ai, degrade-scan)
+```
+
+同时 Diff 轮次收尾向 devlog 追加 `[验证]` 行（dev-loop V3.6，@audit 第 12 项核缺口）：
+
+```
+- [2026-09-25] [验证]: ./mvnw -pl stock-calculator-main compile → 通过
+```
+
+**Step 4 · 运行时：dtrig 聚合实际触发**（存量零命中是预期，数据随新代码逐轮积累）：
+
+```bash
+toolbox run dtrig --md /tmp/degrade-trigger-report.md   # 默认 grep /tmp/logs（jm 日志惯例）
+```
+
+| 输出（场景 × 次数 × 最近触发） | 处置 |
+|---|---|
+| `persona-redis-unavailable` 1042 次 | 高频 = 该路径真实承载流量 → 定性有意降级或未核实猜测 |
+| 静态命中但零触发 | 长期零触发 = 路径可能已死 → 降观察 / 清理 |
+
+**Step 5 · 收口：@done / @audit**：全跑四工具 + `@audit` 十二项（第 12 项抽查 `[验证]` 缺口）；`[once]` 事项事件确认完成自动转 done.md，`[long]` 事项每个 `@done` 强制逐条重评（保留 / 转动作 / 关闭）。
+
+> 常见误读：① dtrig 零命中 ≠ 没有降级（存量代码没有 `[DEGRADE]` 日志行）；② 白名单条目是「已知有意」而非「已修复」——对应路径修复后须**删除登记恢复监控**。
 
 ## 二、Skill 清单（功能与触发时机）
 
