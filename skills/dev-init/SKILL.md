@@ -23,8 +23,9 @@ description: 新项目/新仓库首次接入 AI 开发 skill 体系的一次性�
 4. **project-local 索引**：按 project-index `template.md` 建 `<repo>/.agents/skills/<repo-name>-index/SKILL.md`——只登记域级锚点，禁止一次性铺满（project-index「表格式规范」「维护协议」）。
 5. **项目规范 skill（按需）**：从现有代码提炼写法模式（backend/frontend/docs 类，粒度对齐既有项目规范 skill）；小项目可跳过——workflow + 索引即最小可用集。新建守 README §4.4（description 预算 + 事实指针化）。
 6. **toolbox 项目池**：`toolbox init --project` 建 `scripts/agent-tools/`；仓库内已有持久散放脚本按 agent-toolbox「散乱脚本治理」收编（check 门禁不豁免）。
-7. **AGENTS.md（可选，跨 IDE 兜底）**：仓库根声明「按需读取 `.agents/skills/` 下对应 SKILL.md」——固定单 IDE 且自动路由正常时跳过（README §1.6）。
-8. **冷启动验收（硬卡点）**：模拟新会话全流程——读 `context/CURRENT` → 只读 memory 恢复开工；随后 §2 自检全 ✓。
+7. **副作用收集白名单骨架（项目级，非全局）**：仓库根建 `.uncertainty-whitelist` 与 `.degrade-whitelist` 空文件（uscan/dscan 自动加载，缺失不报错）；文件仅含头注释（用途 + 格式：每行一个正则、`#` 注释 + 收录标准：逐处核读定性「有意降级/已知误报」才收录、修复后删行恢复监控），**禁预置条目**——首跑全量基线（首次 @done）评估后才逐条登记（README §1.8/§1.9）。
+8. **AGENTS.md（可选，跨 IDE 兜底）**：仓库根声明「按需读取 `.agents/skills/` 下对应 SKILL.md」——固定单 IDE 且自动路由正常时跳过（README §1.6）。
+9. **冷启动验收（硬卡点）**：模拟新会话全流程——读 `context/CURRENT` → 只读 memory 恢复开工；随后 §2 自检全 ✓。
 
 **硬卡点**（缺卡 = 接入未完成）：
 - `[事实源]` workflow skill 已建，构建/测试命令已实测（≥1 条跑通）

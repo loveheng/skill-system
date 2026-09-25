@@ -123,7 +123,7 @@ flowchart TD
 - **收集**：`toolbox run uncertainty-scan`（全局池工具，别名 `uscan`，任意 git 仓库通用，自动探测仓库根）。扫描 `UNCERTAIN`/`TODO`/`FIXME`/`XXX`/`HACK` + 中文隐患词（隐患/待确认/待验证/不确定等），覆盖 Java/Python/Shell/TS/Go/Rust 等 14 种语言，自动排除构建目录；有命中 exit 1，`--md <文件>` 导出「位置 + 内容」报告，`--root/--whitelist/--pattern` 可覆盖默认。统一速查见 §1.9 末尾「用法速查」（四工具 uscan/dscan/hyg/dtrig）。
 - **白名单（防误报）**：内置过滤降级文案类误报（「暂不可用」「降级响应」等撞上中文隐患词的行）+ 仓库根 `.uncertainty-whitelist`（每行一个正则，`#` 为注释行，放本项目专属误报模式）。
 - **评估节奏**：按需跑 / epic 收尾（@done）/ `@audit` 时跑。高危项（影响正确性、数据一致性、安全边界）经确认转 `context/todos.md` 风险类待办；低危项（已知降级、有版本规划的）保留注释即可，不落待办。
-- **新仓库接入**：零操作，首次运行即用（git 仓库根自动探测）；误报多时在仓库根补一个 `.uncertainty-whitelist` 文件。
+- **新仓库接入**：dev-init 初始化时建空骨架（仅头注释，禁预置条目，dev-init §1 第 7 步）；零操作也能跑（git 仓库根自动探测），误报多时补条目。
 - **自诊断**：`toolbox run uncertainty-scan --self-test`（金丝雀：坏样本必抓、白名单必滤）。
 
 ```mermaid
