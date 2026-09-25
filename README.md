@@ -70,7 +70,7 @@ flowchart TD
 
 既有容器（memory/todos/lessons/decisions）承接的是**显式信息流**——断点、权衡、踩坑都有明确触发条件。漏斗模型补**隐性资产**维度：AI 在干活时顺带产出、极易随窗口重置蒸发的四类高价值信息。原则（防维护地狱）：**只复用既有容器，不为收集新增任何文件**。
 
-**七条漏斗（信息分流判定表）**：
+**九条漏斗（信息分流判定表）**：
 
 | 会话信息 | 判定问题 | 去向（容器） | 承接机制 |
 |---|---|---|---|
@@ -81,6 +81,8 @@ flowchart TD
 | 业务逻辑细节 | 边界推演、领域规则吗？ | 代码注释（随代码生存）；宏观规则 → docs/ | backend-dev §2.6 / frontend-dev §4 防腐注释；宏观联动见 stock-calculator-docs §二 |
 | 护栏咒语 | 用户重复纠正的项目级约束吗？ | 对应 SKILL.md（体系自进化） | memo-collector §1 咒语行（当轮附注建议，经确认写入） |
 | AI 不确定点 / 隐患 | 实现是猜测/未实证/绕坑，可能埋隐患吗？ | 代码注释 `// UNCERTAIN:` → uncertainty-scan 收集 → 高危转 todos.md 风险类 | 本文 §1.8 |
+| 静默降级 / 吞异常 | 失败被悄悄兜底（默认值/只记日志/吞异常）而非上报吗？ | 代码注释 `// DEGRADE:` → degrade-scan 收集（含形状扫描）→ 高危转 todos.md 风险类 | 本文 §1.9 |
+| 写码残留 | 遗留调试语句 / 注释掉的代码 / 多余依赖吗？ | 代码文件原地 → code-hygiene-scan 扫描 → 直接清理 | 本文 §1.9 |
 
 ```mermaid
 flowchart TD
@@ -92,6 +94,8 @@ flowchart TD
     B -->|业务边界推演| C5[代码注释防腐 - 宏观规则走 docs 域文档]
     B -->|护栏咒语| C6[对应 SKILL.md 护栏 - 体系自进化]
     B -->|AI 不确定点/隐患| C7["代码注释 // UNCERTAIN: - 收集评估 §1.8"]
+    B -->|静默降级/吞异常| C8["代码注释 // DEGRADE: - 收集评估 §1.9"]
+    B -->|写码残留| C9["代码原地 - hygiene 扫描清理 §1.9"]
 ```
 
 **四类隐性资产：典型信号与收集口诀**：
@@ -123,6 +127,40 @@ flowchart LR
     C -->|命中报告| D{评估}
     D -->|高危：正确性/数据/安全| E["context/todos.md 风险类"]
     D -->|低危：已知降级且有规划| F[保留注释，不落待办]
+```
+
+### 1.9 静默降级与代码残留（DEGRADE 约定 + 卫生扫描）
+
+§1.8 管「实现不确定」，本节管两类更隐蔽的 AI 副作用：**错误被悄悄消化**（能跑但错，零报错）与**写码残留**（调试语句/注释掉的代码/依赖膨胀，随复杂度积累成噪音与隐患）。同一套机制两条腿：意图类走标记（AI 写码时附），形状类走机械扫描（无需标记）。
+
+**DEGRADE 标记约定**：AI 写码遇到「失败时兜底而非上报」（返回默认值、只记日志、吞掉异常）且该兜底是**猜测/未核实**的，统一在兜底处写 `// DEGRADE: <为何兜底 + 待谁核实>`。与 UNCERTAIN（整个实现不确定）区分——DEGRADE 专指「错误被悄悄消化」的路径。有意的降级（如 LLM 渠道不可用返回降级文案）属设计行为，不标记、靠白名单/人审区分。
+
+**两个全局池工具**（任意 git 仓库通用，自动探测仓库根；有命中 exit 1，`--md <文件>` 导出报告，`--root` 覆盖根）：
+
+| 工具（别名） | 收集面 | 说明 |
+|---|---|---|
+| `degrade-scan`（dscan） | DEGRADE 标记 + 静默失败形状 | 空 catch / 仅日志吞异常 / catch 后返回默认值 / except 仅 pass / JS 仅 console；有 rethrow 的 catch 自动跳过 |
+| `code-hygiene-scan`（hyg） | 调试残留 / 注释掉的代码 / 依赖膨胀 | println/printStackTrace/print( /console.*/DEBUG 开关；注释代码按代码形态判定（说明性注释不误报）；`--deps` 追加 `mvn dependency:analyze`（used-undeclared / unused-declared，较慢默认不跑） |
+
+**评估节奏**：与 §1.8 同——按需 / epic 收尾（@done）/ `@audit` 时跑。处置口径：
+- 静默降级：属「有意降级」补注释说明理由即可；属「未核实猜测」升级为 UNCERTAIN/DEGRADE 标记，高危（正确性/数据一致性）转 todos 风险类；
+- 代码残留：调试语句删除或降级为受控日志；注释掉的代码整段删除（git 有历史，不需要注释存档）；依赖 undeclared 补声明、unused 移除（先确认非反射/AOT 需要）。
+
+**自诊断**：`toolbox run <工具> --self-test`（金丝雀：坏样本必抓、好样本必不误报）。
+
+```mermaid
+flowchart LR
+    A[AI 写码] --> B{失败路径如何处置}
+    B -->|猜测/未核实的兜底| C["注释 // DEGRADE: 原因+待核实"]
+    B -->|有意降级（设计行为）| D[普通注释说明理由]
+    C --> E["degrade-scan 标记层"]
+    B --> E2["空catch/吞异常/兜底默认值"]
+    E2 --> E
+    F[写码残留：println/注释代码/多余依赖] --> G["code-hygiene-scan 形状层"]
+    E --> H{评估}
+    G --> H
+    H -->|高危| I["context/todos.md 风险类"]
+    H -->|残留| J[直接清理]
 ```
 
 ## 二、Skill 清单（功能与触发时机）
@@ -295,6 +333,8 @@ flowchart TD
 - ❌ 记忆归并坏了让 AI 自己重写修复 → `git checkout -- context/<epic>/memory.md` 回滚 + 人工微调（见 §4.3）
 - ❌ 把 `context/` 移出版本控制 → 记忆不可回溯，灾难恢复失效
 - ❌ 隐性资产随窗口蒸发：边界推演不留注释、假设/测试启发不落 todos、不确定点只留普通「注意」注释、咒语只记脑子里 → 按 §1.7 信息漏斗各归其位（不确定点 → §1.8 UNCERTAIN 约定）
+- ❌ 失败悄悄兜底不标注：catch 吞异常/返回默认值属「未核实猜测」却不留 DEGRADE 标记，零报错隐患长期潜伏 → §1.9 DEGRADE 约定 + degrade-scan
+- ❌ 调试语句/注释掉的代码/多余依赖长期留存：写完就忘，随复杂度积累成噪音 → §1.9 code-hygiene-scan 定期清理（注释代码整段删，git 有历史）
 
 ## 五、权威出处索引（防双源，遇冲突以出处为准）
 
@@ -312,3 +352,4 @@ flowchart TD
 | Native 构建期 / 运行期 | stock-calculator-native-build / stock-calculator-native-runtime-metadata |
 | 新项目接入流程 | dev-init |
 | 不确定标记约定与收集评估 | 本文 §1.8（机制）；CLI 权威口径为全局池 uncertainty-scan.sh 脚本头部 |
+| 静默降级/代码残留约定与收集评估 | 本文 §1.9（机制）；CLI 权威口径为全局池 degrade-scan.py / code-hygiene-scan.py 脚本头部 |
