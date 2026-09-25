@@ -1,7 +1,7 @@
 # skill-system
 ---
 status: active
-updated: 2026-09-19
+updated: 2026-09-25
 ---
 
 # AI 辅助开发 Skill 体系（设计意图与使用手册）
@@ -70,7 +70,7 @@ flowchart TD
 
 既有容器（memory/todos/lessons/decisions）承接的是**显式信息流**——断点、权衡、踩坑都有明确触发条件。漏斗模型补**隐性资产**维度：AI 在干活时顺带产出、极易随窗口重置蒸发的四类高价值信息。原则（防维护地狱）：**只复用既有容器，不为收集新增任何文件**。
 
-**六条漏斗（信息分流判定表）**：
+**七条漏斗（信息分流判定表）**：
 
 | 会话信息 | 判定问题 | 去向（容器） | 承接机制 |
 |---|---|---|---|
@@ -80,6 +80,7 @@ flowchart TD
 | 风险/假设/测试点 | 潜在雷、未验证前提、被否决的候选路径吗？ | todos.md（积压池） | memo-collector §1（未验证假设点名信号 + `(测试)` 类型） |
 | 业务逻辑细节 | 边界推演、领域规则吗？ | 代码注释（随代码生存）；宏观规则 → docs/ | backend-dev §2.6 / frontend-dev §4 防腐注释；宏观联动见 stock-calculator-docs §二 |
 | 护栏咒语 | 用户重复纠正的项目级约束吗？ | 对应 SKILL.md（体系自进化） | memo-collector §1 咒语行（当轮附注建议，经确认写入） |
+| AI 不确定点 / 隐患 | 实现是猜测/未实证/绕坑，可能埋隐患吗？ | 代码注释 `// UNCERTAIN:` → uncertainty-scan 收集 → 高危转 todos.md 风险类 | 本文 §1.8 |
 
 ```mermaid
 flowchart TD
@@ -90,6 +91,7 @@ flowchart TD
     B -->|风险/假设/测试点| C4[todos.md - 积压池]
     B -->|业务边界推演| C5[代码注释防腐 - 宏观规则走 docs 域文档]
     B -->|护栏咒语| C6[对应 SKILL.md 护栏 - 体系自进化]
+    B -->|AI 不确定点/隐患| C7["代码注释 // UNCERTAIN: - 收集评估 §1.8"]
 ```
 
 **四类隐性资产：典型信号与收集口诀**：
@@ -102,6 +104,26 @@ flowchart TD
 | 咒语（元认知护栏） | 「必须用 Jakarta，不能用旧版 javax」「useEffect 必须加清理函数」 | 当轮一行附注建议写入对应 SKILL.md，经确认执行——体系自进化 |
 
 规范事实源分布：假设/测试/咒语信号 → memo-collector §1；注释防腐 → backend-dev §2.6、frontend-dev §4；断点/权衡/踩坑 → dev-loop §2/§3/§6。本文只做导航。
+
+### 1.8 不确定标记（UNCERTAIN 约定与收集评估）
+
+问题：AI 写码时遇到不确定点（未实证的接口行为、猜测的边界、绕坑的权宜实现）往往「直接写」，只留一条普通「注意」注释——项目复杂度增长后，这些散落的不确定点就是隐患与「莫名其妙问题」的来源。对策：**统一标记 → 机械收集 → 定期评估**，全程只复用既有容器（代码注释 + todos.md），不为收集新增任何文件（对齐 §1.7 原则）。
+
+- **标记约定**：AI 写码遇不确定点统一写 `// UNCERTAIN: <一句话说明：哪里不确定 + 风险是什么>`。与 `TODO`（计划做）和普通防腐注释（结论已确定）区分——只有「不确定/未实证」才用 UNCERTAIN。
+- **收集**：`toolbox run uncertainty-scan`（全局池工具，别名 `uscan`，任意 git 仓库通用，自动探测仓库根）。扫描 `UNCERTAIN`/`TODO`/`FIXME`/`XXX`/`HACK` + 中文隐患词（隐患/待确认/待验证/不确定等），覆盖 Java/Python/Shell/TS/Go/Rust 等 14 种语言，自动排除构建目录；有命中 exit 1，`--md <文件>` 导出「位置 + 内容」报告，`--root/--whitelist/--pattern` 可覆盖默认。
+- **白名单（防误报）**：内置过滤降级文案类误报（「暂不可用」「降级响应」等撞上中文隐患词的行）+ 仓库根 `.uncertainty-whitelist`（每行一个正则，`#` 为注释行，放本项目专属误报模式）。
+- **评估节奏**：按需跑 / epic 收尾（@done）/ `@audit` 时跑。高危项（影响正确性、数据一致性、安全边界）经确认转 `context/todos.md` 风险类待办；低危项（已知降级、有版本规划的）保留注释即可，不落待办。
+- **新仓库接入**：零操作，首次运行即用（git 仓库根自动探测）；误报多时在仓库根补一个 `.uncertainty-whitelist` 文件。
+- **自诊断**：`toolbox run uncertainty-scan --self-test`（金丝雀：坏样本必抓、白名单必滤）。
+
+```mermaid
+flowchart LR
+    A[AI 写码] -->|遇不确定点| B["注释 // UNCERTAIN: 说明"]
+    B --> C["toolbox run uncertainty-scan<br/>全局工具 · 白名单过滤"]
+    C -->|命中报告| D{评估}
+    D -->|高危：正确性/数据/安全| E["context/todos.md 风险类"]
+    D -->|低危：已知降级且有规划| F[保留注释，不落待办]
+```
 
 ## 二、Skill 清单（功能与触发时机）
 
@@ -272,7 +294,7 @@ flowchart TD
 - ❌ ASCII 画图 → 流程/状态/架构一律 Mermaid
 - ❌ 记忆归并坏了让 AI 自己重写修复 → `git checkout -- context/<epic>/memory.md` 回滚 + 人工微调（见 §4.3）
 - ❌ 把 `context/` 移出版本控制 → 记忆不可回溯，灾难恢复失效
-- ❌ 隐性资产随窗口蒸发：边界推演不留注释、假设/测试启发不落 todos、咒语只记脑子里 → 按 §1.7 信息漏斗各归其位
+- ❌ 隐性资产随窗口蒸发：边界推演不留注释、假设/测试启发不落 todos、不确定点只留普通「注意」注释、咒语只记脑子里 → 按 §1.7 信息漏斗各归其位（不确定点 → §1.8 UNCERTAIN 约定）
 
 ## 五、权威出处索引（防双源，遇冲突以出处为准）
 
@@ -289,3 +311,4 @@ flowchart TD
 | 代码写法模式 | stock-calculator-backend-dev / stock-calculator-frontend-dev |
 | Native 构建期 / 运行期 | stock-calculator-native-build / stock-calculator-native-runtime-metadata |
 | 新项目接入流程 | dev-init |
+| 不确定标记约定与收集评估 | 本文 §1.8（机制）；CLI 权威口径为全局池 uncertainty-scan.sh 脚本头部 |
