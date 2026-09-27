@@ -1,6 +1,6 @@
 ---
 name: dev-init
-description: 新项目/新仓库首次接入 AI 开发 skill 体系的一次性初始化引导 checklist：按序编排 context/ 记忆骨架 → workflow 事实源 → project-local 索引 → 规范 skill → toolbox 项目池 → AGENTS.md 兜底 → 冷启动验收；存量代码库含对账 §1.5。零项目数据，各步薄指针到既有机制。新项目接入、存量代码库首次接入 / 大规模重写后重验、初始化项目体系、补缺项目 skill 时加载；日常任务归 dev-guide。
+description: 新项目/新仓库/存量项目初始化 AI 开发 skill 体系的一次性引导 checklist：按序编排 context/ 记忆骨架 → workflow 事实源 → project-local 索引 → 规范 skill → toolbox 项目池 → AGENTS.md 兜底 → 冷启动验收；存量项目含对账 §1.5。零项目数据，各步薄指针到既有机制。新项目接入、存量项目初始化（含大规模重写后重验）、补缺项目 skill 时加载；日常任务归 dev-guide。
 ---
 
 # dev-init · 新项目接入引导（一次性 checklist）
@@ -12,8 +12,8 @@ description: 新项目/新仓库首次接入 AI 开发 skill 体系的一次性�
 ## 0. 入口判定
 
 - 新项目/新仓库首次接入（空白板）→ 走 §1 全流程
-- 存量代码库首次接入（有代码而无 context/ 或 project-local skill，或代码大规模重写后 skill 整体过期）→ 先跑 §1.5 存量对账，再按 §1 补缺
-- 已接入项目补缺（如只有索引没有事实源）→ 直接跳对应步骤，已完成项 ✓ 跳过
+- 存量项目上初始化（已有代码库：无 context/ 或无 project-local skill，或代码大规模重写后 skill 整体过期）→ 先跑 §1.5 存量对账，再按 §1 补缺
+- 已接入项目补缺（**部分**缺件，如只有索引没有事实源）→ 直接跳对应步骤，已完成项 ✓ 跳过；缺的若是主体（context/ 与 project-local skill 俱无）→ 按上行走 §1.5
 - 日常编码任务 → 不走本流程（dev-guide §0）；新机器/新环境准备（clone 两仓）→ README §1.5
 
 ## 1. 接入 Checklist（按序执行；跳过项必须留一句理由）
@@ -31,10 +31,10 @@ description: 新项目/新仓库首次接入 AI 开发 skill 体系的一次性�
      - 两种情形收口均按 §2「三处同步」把 docs skill 域表同步进 `docs/README.md` 与项目索引的文档落点列。
 6. **toolbox 项目池（脚本文件夹初始化）**：`toolbox init --project` 建 `scripts/agent-tools/` **并落 `README.md` 占位**——空目录不入 git，占位文件保证池随仓库 clone 即得；项目池随仓库版本化，同名工具覆盖全局池。**收编**：仓库内已有持久散放脚本（仓库根、`scripts/` 下的 .sh/.mjs/.py 等）按 agent-toolbox「散乱脚本治理」处理——评估复用价值 → 合规化（补头部块/`--help`/`--json`/`--self-test`）→ `toolbox check` 入池 → 原址删除或改一行薄指针（check 门禁不豁免）。**骨架捷径**：`toolbox run scaffold` 内部会调用 `toolbox init --project`。
 7. **副作用收集白名单骨架（项目级，非全局）**：仓库根建 `.uncertainty-whitelist` 与 `.degrade-whitelist` 空文件（uscan/dscan 自动加载，缺失不报错）；文件仅含头注释（用途 + 格式：每行一个正则、`#` 注释 + 收录标准：逐处核读定性「有意降级/已知误报」才收录、修复后删行恢复监控），**禁预置条目**——首跑全量基线（首次 @done；存量项目按 §1.5 第 5 项基线前移至接入时点）评估后才逐条登记（口径与格式见 ai-sideeffect-guard §3）。**骨架捷径**：`toolbox run scaffold` 已生成则 ✓ 跳过。
-8. **AGENTS.md（可选，跨 IDE 兜底）**：仓库根声明「按需读取 `.agents/skills/` 下对应 SKILL.md」——固定单 IDE 且自动路由正常时跳过（README §1.6）。
+8. **AGENTS.md（可选，跨 IDE 兜底）**：仓库根声明「按需读取 `.agents/skills/` 下对应 SKILL.md」——固定单 IDE 且自动路由正常时跳过（README §1.6）。**存量分支**：仓库已有其他 AI 指令文件（AGENTS.md/CLAUDE.md 等）→ 先读、核对与 skill 体系无冲突后**追加一行指针**（指向 `.agents/skills/`），不另起新文件；有冲突则向用户出示分歧清单再收口（裁决链见 dev-loop 开头）。
 9. **冷启动验收（硬卡点）**：模拟新会话全流程——读 `context/CURRENT` → 只读 memory 恢复开工 + project-local 三 skill（workflow/索引/规范）可加载且互洽（§1.5 第 1 项口径）；随后 §2 自检全 ✓。
 
-## 1.5 存量对账（仅存量代码库首次接入 / 大规模重写后重验；§0 命中后先跑本节，再按 §1 补缺）
+## 1.5 存量对账（存量项目初始化 / 大规模重写后重验；§0 命中后先跑本节，再按 §1 补缺）
 
 > 空白板项目本节整体跳过。「现场提炼」对存量是**重验**不是**新建**——skill 能加载 ≠ skill 是最新的，过期 skill 比没有 skill 更危险（错误锚点误导每一轮定位）。
 

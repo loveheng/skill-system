@@ -28,6 +28,7 @@ description: AI 写码隐性副作用的标记与收集治理：未实证实现�
 - 语言适配：注释符号随语言（`//`、`#`、`--`）；场景 key 用 kebab-case，与代码位置语义对齐（如 `persona-redis-unavailable`）。
 - **区分三者**：`TODO` = 计划做；普通防腐注释 = 结论已确定（backend-dev §2.6 / frontend-dev §4）；`UNCERTAIN`/`DEGRADE` = 结论未定论。
 - **有意降级不标记**：设计行为（如 LLM 渠道不可用返回降级文案）写普通注释说明理由，靠白名单/人审区分，不标 DEGRADE。
+- **设计假设未落码**：默认实现/接口行为的假设仍停留在回答中、尚未写进代码时，标记无处安放——按 memo-collector §1 判定表以 `(风险)` 口径暂记 todos（未验证假设），落码后该处再按本 skill 留 UNCERTAIN/DEGRADE 标记，两段衔接不重复。
 - 与 dev-loop 的关系：标记**不落日志、不进 devlog**，只随代码生存；dev-loop §2 的日志协议照常执行。
 
 ## 2. 四工具速查（uscan / dscan / hyg / dtrig）

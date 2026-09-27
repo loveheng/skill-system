@@ -195,7 +195,9 @@ last-merge: <YYYY-MM-DD | none>
 
 ## 8. epic 收尾 (Closure)
 
-- **`@done`**（**misc 常驻，不适用收尾**）：第一步**强制执行 §7 审计，存在 ⚠ 项即中止收尾、先修复**；通过后将 memory.md 提炼为 **≤10 行结论块**（保留头部与 `## 断点` 改写为完结说明），目录移入 `context/archive/<名>/`，`decisions.md` 中该 epic 节若有条目则整体移入 `context/archive/<名>/decisions.md` 并删除该节，`CURRENT` 改写为 `epic: none`，一行回复确认。收尾后该 epic 退出活跃集，恢复流程永不再读它（按需人工翻档）。
+- **`@done`**（**misc 常驻，不适用收尾**）：第一步**强制执行 §7 审计，存在 ⚠ 项即中止收尾、先修复**；通过后执行**收敛复盘**（升舱后输出一行度量，见下）；随后将 memory.md 提炼为 **≤10 行结论块**（保留头部与 `## 断点` 改写为完结说明），目录移入 `context/archive/<名>/`，`decisions.md` 中该 epic 节若有条目则整体移入 `context/archive/<名>/decisions.md` 并删除该节，`CURRENT` 改写为 `epic: none`，一行回复确认。收尾后该 epic 退出活跃集，恢复流程永不再读它（按需人工翻档）。
+
+**收敛复盘（@done 内置，升舱 L2→L3）**：收尾时逐项核对——① lessons 正文中已被验证多次、表述稳定的条目 → 提议固化进规范/事实源 skill（原条目降级一行 `Ref:`，对齐 §7 第 5 项口径）；② devlog/待办中同类澄清 ≥2 次的约束 → 按 memo-collector「咒语」行固化信号提议升级事实源；③ todos 中 `[long]` 条目按 memo-collector §4 重评；④ @verify 近期 ❌ 项确认已批量 SSOT 修正。全部走「提议 → 用户确认 → 落位」，AI 不静默改写 skill。收尾回复附一行**收敛度量**：`收敛: +N 固化 / M 待定 → 事实源`（N=本轮升舱条数，M=仍留 L2 的条数）——跨 epic 观察趋势，固化递增、待定递减即体系在收敛。
 
 ---
 
