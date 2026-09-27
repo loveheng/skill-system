@@ -46,6 +46,7 @@ STATE_DIR = TOOLBOX_DIR / "state"
 LEDGER_FILE = STATE_DIR / "usage-ledger.jsonl"
 PARAMS_FILE = TOOLBOX_DIR / "params.env"          # 全局参数配置（手工维护）
 PROJECT_PARAMS_NAME = ".toolbox.env"              # 项目参数配置（<repo>/.toolbox.env，项目覆盖全局）
+DOTENV_NAMES = (".env", ".env.local", ".env.production", ".env.development")  # 项目根 dotenv（后者覆盖前者）
 TRASH_DIR = TOOLBOX_DIR / ".trash"
 MGR_PATH = Path(__file__).resolve()
 MARKER_BEGIN = "# >>> toolbox-mgr >>>"
@@ -746,11 +747,21 @@ def cmd_run_hooks(args):
 # ---------- run：按名称或短别名执行工具（参数注入 + 缺参提醒 + 台账） ----------
 
 def load_param_values():
-    """合并全局 params.env 与项目 .toolbox.env（项目覆盖全局，存在即用含空值）。
-    返回 (values, file_used)；文件坏行静默跳过，故障绝不阻塞工具执行。"""
+    """合并参数来源（后者覆盖前者），供 inject_params 按需注入：
+      全局 ~/.agents/toolbox/params.env
+      项目 <repo>/.toolbox.env
+      项目根 dotenv：.env → .env.local → .env.production → .env.development
+    仅返回 KEY=value 映射；具体导出哪些键由工具头部 params: 声明决定
+    （未声明的键不会导出，故 .env 中的密钥不会泄漏给脚本）。
+    返回 (values, files_used)；坏行/引号静默处理，故障绝不阻塞工具执行。"""
     values, used = {}, []
     pd = find_repo_root(Path.cwd())
-    for f in ([PARAMS_FILE] + ([pd / PROJECT_PARAMS_NAME] if pd else [])):
+    files = [PARAMS_FILE]
+    if pd:
+        files.append(pd / PROJECT_PARAMS_NAME)
+        for n in DOTENV_NAMES:
+            files.append(pd / n)
+    for f in files:
         if not f.is_file():
             continue
         try:
@@ -759,7 +770,11 @@ def load_param_values():
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 k, _, v = line.partition("=")
-                values[k.strip()] = v.strip()
+                k, v = k.strip(), v.strip()
+                # 兼容 .env 常见引号包裹：去掉首尾成对的单/双引号
+                if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+                    v = v[1:-1]
+                values[k] = v
             used.append(str(f))
         except OSError:
             pass
@@ -787,8 +802,9 @@ def inject_params(e, inline=None):
         pd = find_repo_root(Path.cwd())
         cfg = (str(pd / PROJECT_PARAMS_NAME) if pd else str(PARAMS_FILE))
         print("⚠ [%s] 缺参数: %s" % (e["name"], ", ".join(missing)))
-        print("  请在 %s 添加（格式 KEY=value，一行一个；全局配置 %s）"
-              % (cfg, PARAMS_FILE))
+        print("  请在以下任一处添加（格式 KEY=value，一行一个；已导出的环境变量优先）：")
+        print("    项目根 .env / .env.local / .env.production（后者覆盖前者）")
+        print("    项目 %s；全局 %s" % (cfg, PARAMS_FILE))
         print("  或临时内联: toolbox run %s KEY=value ..." % e["name"])
     return missing
 
@@ -1323,9 +1339,13 @@ toolbox 脚本编写规范 v1.5（唯一事实源——由元工具内嵌，任�
     经 `toolbox run <别名> [参数...]` 运行——解析、透传、计台账均由元工具承担；
     裸调脚本文件仍合法（别名只是附加通道，非强制）。
   - 参数声明（可选）：头部块加 `params: KEY1,KEY2`（大写/数字/下划线，逗号分隔），
-    声明工具依赖的配置参数。参数值集中维护于全局 ~/.agents/toolbox/params.env 与
-    项目 <repo>/.toolbox.env（KEY=value 一行一个，项目覆盖全局；手工添加，禁入 git）。
-    `toolbox run` 运行前自动注入为同名环境变量（已导出的环境变量优先于配置文件）；
+    声明工具依赖的配置参数。参数值集中维护于（后者覆盖前者，同一 KEY=value 格式）：
+      全局 ~/.agents/toolbox/params.env
+      项目 <repo>/.toolbox.env
+      项目根 dotenv：.env → .env.local → .env.production → .env.development
+    （更具体的环境文件覆盖前者；手工添加，禁入 git）。`toolbox run` 运行前按头部
+    params: 声明自动注入为同名环境变量（已导出的环境变量优先于配置文件）；
+    **仅注入声明的键**——.env 中的其他密钥（口令/令牌等）不会被导出，安全无泄漏。
     缺参当场打印提醒（不阻塞——工具自身预检仍兜底）。脚本内取参应 env 优先、
     本地兜底（如 .env），与环境变量注入语义一致。
   - 类别声明（可选，v1.5）：头部块加 `cat: <类别>`（单个，同 name 命名规则；惯例类目
