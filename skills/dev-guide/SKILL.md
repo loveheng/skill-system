@@ -33,9 +33,9 @@ description: 大需求开发、结构性重构或复杂 Bug 修复时的流程�
 
 ## 2. Bug 修复流
 
-1. Lessons 对照 → dev-loop §2 第 2 条（先读 lessons 正文再动手）→ 卡点 B1
+1. Lessons 对照 → dev-loop §2 第 2 条（先读 lessons 正文再动手）→ 卡点 B1；**重大故障 / 已触发熔断** → dev-loop 护栏 3「还原优先分支」（锚定正常版本 → 快照 → 可逆还原 → 变更复盘，先反馈方案再动手）
 2. 环境限制 → 当前项目 workflow 类 skill（终端/写入限制先行）
-3. 定位 → project-index L1/L2
+3. 定位 → project-index L1/L2（排查连续 3 轮无新信息 → dev-loop 护栏 3「长推理熔断」：停止推理、按交接格式抛出问题与用户合作）
 4. 根因修复 → 涉 native 构建走项目 native skill 的排查套路 → 卡点 B2（修复落地**前**输出）
 5. 验证 → 当前项目索引「命令速查」节
 6. Lesson 判定 → 具备通用价值才按 dev-loop §2 记 lessons → 卡点 B3
