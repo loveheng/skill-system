@@ -18,8 +18,9 @@ description: 大需求开发、结构性重构或复杂 Bug 修复时的流程�
 
 ## 1. 需求开发流（每步一行，规范正文全在指针出处）
 
-1. 绑定 epic → dev-loop `@bind`（切换且旧 epic 有积压时先归并）
-2. 拆解落断点 → dev-loop `@next`（≤3 候选，选定后落盘为断点）
+0. 准入评估 → solution-admission §1（三级分流 + 六条否决信号；判 S2 先出结构性方案再进下一步）
+1. 绑定 epic → dev-loop `::bind`（切换且旧 epic 有积压时先归并）
+2. 拆解落断点 → dev-loop `::next`（≤3 候选，选定后落盘为断点）
 3. 定位落点 → project-index L1/L2（项目实例 = 各 repo 的 project-local index）
 4. 写码 → 当前项目规范 skill（按描述自动加载，勿额外整读全文）
 5. 验证 → 当前项目索引「命令速查」节
@@ -27,6 +28,7 @@ description: 大需求开发、结构性重构或复杂 Bug 修复时的流程�
 7. 落盘 → dev-loop §2 日志协议（自动，勿重复落）
 
 **硬卡点**（缺卡 = 流程未完成）：
+- 准入完成：`[准入] S1 放行 / S2 已回结构性方案 / S3 已留 PATCH 标记 + 落风险待办`
 - 定位完成：`[落点] <域> <代码路径> <文档路径>`
 - 验证完成：`[验证] <命令> → 通过 / 跳过原因`
 - 收尾：`[收尾] 日志已落 <epic>/devlog；文档联动: 是/否(理由)；断点已刷新；git 指令已生成(未执行)`
@@ -56,8 +58,8 @@ description: 大需求开发、结构性重构或复杂 Bug 修复时的流程�
 ### 通用区
 | 场景 | 去处 |
 |---|---|
-| 交互指令（@file @bind @next @remember @adr @status @merge @audit @verify @done @help） | dev-loop §3-§9 |
-| 备忘指令（@todo @todos @tdone @todo-clean @todo-groom） | memo-collector §3 |
+| 交互指令（::file ::bind ::next ::remember ::adr ::status ::merge ::audit ::verify ::done ::help） | dev-loop §3-§9 |
+| 备忘指令（::todo ::todos ::tdone ::todo-clean ::todo-groom） | memo-collector §3 |
 | 代码/文档定位协议（L1/L2 两级展开） | project-index |
 | 构建/验证/lint 等项目专属命令 | 当前项目仓库 project-local 索引的「命令速查」节（机制见 project-index；换项目零编辑） |
 
@@ -71,5 +73,5 @@ description: 大需求开发、结构性重构或复杂 Bug 修复时的流程�
 ## 5. 维护协议
 
 - 新指针写入前核对锚点；被引用 skill 改节号/节名的**当轮**，grep 引用方同步
-- 检测网 = dev-loop @audit 第 9 项（指针抽查）+ 第 10 项（skill 卫生：事实指针化 + description 预算）；指针锚点存在性已由 audit 钩工具 context-lint 机械代跑（2026-09-19 起；中文数字节号与裸 § 自引用仍人工抽查）
+- 检测网 = dev-loop ::audit 第 9 项（指针抽查）+ 第 10 项（skill 卫生：事实指针化 + description 预算）；指针锚点存在性已由 audit 钩工具 context-lint 机械代跑（2026-09-19 起；中文数字节号与裸 § 自引用仍人工抽查）
 - 本文件软上限 ~80 行；超限先砍描述密度，禁止往里加规范正文

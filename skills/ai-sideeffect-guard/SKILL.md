@@ -1,6 +1,6 @@
 ---
 name: ai-sideeffect-guard
-description: AI 写码隐性副作用的标记与收集治理：未实证实现标 // UNCERTAIN:、猜测性兜底（空 catch/吞异常/返回默认值）标 // DEGRADE: 并打 [DEGRADE] 日志；四工具 uscan/dscan/hyg/dtrig 机械收集评估。写码留不确定实现或静默降级、清理写码残留、@done/@audit/发布前副作用体检时使用。
+description: AI 写码隐性副作用的标记与收集治理：未实证实现标 // UNCERTAIN:、猜测性兜底（空 catch/吞异常/返回默认值）标 // DEGRADE: 并打 [DEGRADE] 日志；四工具 uscan/dscan/hyg/dtrig 机械收集评估。写码留不确定实现或静默降级、清理写码残留、::done/::audit/发布前副作用体检时使用。
 ---
 
 # AI-SideEffect-Guard · AI 写码副作用标记与收集
@@ -27,6 +27,7 @@ description: AI 写码隐性副作用的标记与收集治理：未实证实现�
 
 - 语言适配：注释符号随语言（`//`、`#`、`--`）；场景 key 用 kebab-case，与代码位置语义对齐（如 `persona-redis-unavailable`）。
 - **区分三者**：`TODO` = 计划做；普通防腐注释 = 结论已确定（backend-dev §2.6 / frontend-dev §4）；`UNCERTAIN`/`DEGRADE` = 结论未定论。
+- **与 PATCH 的边界**：本 skill 只管「认知类 / 容错类」隐患（不知道对不对 / 失败悄悄兜底）；「明知不是正解但先这样」的**引入方式取舍**属 solution-admission §4（`// PATCH:` 标记），两者语义正交，禁止混用。
 - **有意降级不标记**：设计行为（如 LLM 渠道不可用返回降级文案）写普通注释说明理由，靠白名单/人审区分，不标 DEGRADE。
 - **设计假设未落码**：默认实现/接口行为的假设仍停留在回答中、尚未写进代码时，标记无处安放——按 memo-collector §1 判定表以 `(风险)` 口径暂记 todos（未验证假设），落码后该处再按本 skill 留 UNCERTAIN/DEGRADE 标记，两段衔接不重复。
 - 与 dev-loop 的关系：标记**不落日志、不进 devlog**，只随代码生存；dev-loop §2 的日志协议照常执行。
@@ -55,7 +56,7 @@ toolbox run uscan --root <目录> --whitelist <文件> --pattern <正则>
 toolbox run <uscan|dscan|hyg|dtrig> --self-test
 ```
 
-- **分级节奏（防四报告噪音坟场）**：会话中按需只跑 1 个；`@done` / `@audit` / 发布前全跑四个；新仓库首次跑一次建立基线（存量命中先评估，有意降级登记白名单，后续只关注增量）。
+- **分级节奏（防四报告噪音坟场）**：会话中按需只跑 1 个；`::done` / `::audit` / 发布前全跑四个；新仓库首次跑一次建立基线（存量命中先评估，有意降级登记白名单，后续只关注增量）。
 - **dtrig 存量零命中是预期**：只对本约定启用后新写的 `[DEGRADE]` 日志行有数据，早期零命中 ≠ 没有降级发生。
 
 ## 3. 白名单与防误报
@@ -76,7 +77,7 @@ toolbox run <uscan|dscan|hyg|dtrig> --self-test
 | 不确定标记 | 低危（已知降级且有版本规划） | 保留注释即可，不落待办 |
 | 代码残留 | — | 调试语句删除或降为受控日志；**注释掉的代码整段删**（git 有历史）；依赖 undeclared 补声明、unused 移除（先确认非反射/AOT 需要） |
 
-评估时机：会话中按需 → 只跑相关 1 个工具；epic 收尾（@done）/ `@audit` 第 11 项 / 发布前 → 全跑四工具并导出报告。
+评估时机：会话中按需 → 只跑相关 1 个工具；epic 收尾（::done）/ `::audit` 第 11 项 / 发布前 → 全跑四工具并导出报告。
 
 ## 5. 完整生命周期示例（标记 → 扫描 → 白名单 → 触发 → todos）
 
@@ -105,7 +106,7 @@ private OffsetDateTime parseAt(String raw, String tz) { /* ... */ }
 
 **运行期**：`toolbox run dtrig --md /tmp/degrade-trigger-report.md` → 高频（如 1042 次）说明路径真实承载流量，按 §4 定性；零触发说明路径可能已死。
 
-**收口**：`@done` / `@audit` 全跑四工具；Diff 轮次照 dev-loop §2 追加 `[验证]` 行（@audit 第 12 项核缺口）。
+**收口**：`::done` / `::audit` 全跑四工具；Diff 轮次照 dev-loop §2 追加 `[验证]` 行（::audit 第 12 项核缺口）。
 
 ## 6. 护栏与反模式
 

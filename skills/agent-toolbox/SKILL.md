@@ -47,7 +47,7 @@ AI 嵌入流程的四个辅助命令：`suggest`（读 git 变更推断类别，
 2. 无合适工具且常规工具链低效：`toolbox new <name>` 生成脚手架 → 实现逻辑（守 `toolbox spec`）→ **先分型**（服务型加 `verbs:` 头、一次性不加）→ `toolbox check` 登记后使用；
 3. **高频收敛（AI 自注册）**：执行中发现同一条裸命令/复合命令**同一会话内重复 ≥3 次**，或**跨会话再次手写同一命令**（上下文记忆命中）→ 视为稳定需求信号：提炼为工具脚本（`toolbox new` → 实现 → `--json` 预检/guard 类带 `--self-test`）→ `toolbox propose` 入提案队列，用户空闲时 `toolbox approve` 批量登记（登记门禁不豁免但可合并）；/tmp 下的一次性临时脚本若被二次复用，同样走收编；
 4. 钩子 FAIL → 按 memo-collector 口径转 `风险` 类待办落 `todos.md`，message 即待办内容；
-5. epic 收尾（@done）：看 `toolbox list` 盘点零使用工具，提议退役（人工确认后 `toolbox remove`）——自注册工具同样受此闭环校验，防止 AI 只增不减；
+5. epic 收尾（::done）：看 `toolbox list` 盘点零使用工具，提议退役（人工确认后 `toolbox remove`）——自注册工具同样受此闭环校验，防止 AI 只增不减；
 6. 发现散落各处的持久脚本（家目录/项目根等）或用户要求整理/收编/迁移脚本：按「散乱脚本治理」流程执行。
 
 ## 散乱脚本治理（登记制）
@@ -72,6 +72,6 @@ AI 嵌入流程的四个辅助命令：`suggest`（读 git 变更推断类别，
 ## 接线（对 dev-loop 的唯一侵入）
 
 - dev-loop §3 开场：`toolbox run-hooks bootstrap --quiet`（exit 0 静默；FAIL/故障不阻塞恢复，仅附一行 ⚠）；
-- dev-loop @audit 第 11 项：`toolbox run-hooks audit --quiet`，FAIL/ERROR 转 ⚠；
+- dev-loop ::audit 第 11 项：`toolbox run-hooks audit --quiet`，FAIL/ERROR 转 ⚠；
 - **`--quiet` 语义（写死）**：静默**一切**输出（含 FAIL 明细），只留退出码（0/1）供判定——需要明细时去掉 `--quiet` 重跑同命令，或裸跑对应工具；
-- 当前挂载：bootstrap → env-doctor（开场环境体检）；audit → context-lint（context/ 数据面 + skill 指针面机械校验，@audit 机械项代跑；裸跑=逐条明细，--json=单行结论）。
+- 当前挂载：bootstrap → env-doctor（开场环境体检）；audit → context-lint（context/ 数据面 + skill 指针面机械校验，::audit 机械项代跑；裸跑=逐条明细，--json=单行结论）。
