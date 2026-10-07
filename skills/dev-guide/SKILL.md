@@ -58,7 +58,7 @@ description: 大需求开发、结构性重构或复杂 Bug 修复时的流程�
 ### 通用区
 | 场景 | 去处 |
 |---|---|
-| 交互指令（::file ::bind ::next ::remember ::adr ::status ::merge ::audit ::verify ::done ::help） | dev-loop §3-§9 |
+| 交互指令（::file ::bind ::next ::board ::remember ::adr ::status ::merge ::audit ::verify ::done ::help） | dev-loop §3-§9 |
 | 备忘指令（::todo ::todos ::tdone ::todo-clean ::todo-groom） | memo-collector §3 |
 | 代码/文档定位协议（L1/L2 两级展开） | project-index |
 | 构建/验证/lint 等项目专属命令 | 当前项目仓库 project-local 索引的「命令速查」节（机制见 project-index；换项目零编辑） |
@@ -68,6 +68,7 @@ description: 大需求开发、结构性重构或复杂 Bug 修复时的流程�
 
 - 标记仅在**本 skill 加载的引导轮次**要求；散修/咨询轮零标记
 - 标记是聊天输出物，**严禁写入 devlog**——落盘一律走 dev-loop §2 通道，防双写
+- 本 skill 卡点 `[验证]` 与 devlog 账本行 `[验证]`（dev-loop §2 第 4 条）**同名不同物**：卡点标记录聊天输出，账本行落 devlog——落点互斥即防双写
 - 每卡 ≤1 行；与 dev-loop 自动归并附注同轮出现时合并展示，回复尾部不堆叠
 
 ## 5. 维护协议

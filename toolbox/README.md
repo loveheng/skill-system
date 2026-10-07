@@ -34,8 +34,17 @@ stop 幂等（未运行 exit 0）；status 可安全重复；restart 单目标�
 
 ## 常用全局工具（按类别，`toolbox list --cat <类别>` 看全量）
   toolbox run scaffold         # 新项目 skill 体系骨架一键初始化（context/ + 白名单 + .agents/skills + 项目池）[ops]
-  toolbox run envdoc           # 环境体检（Java/GraalVM/docker/git 损坏探测）[env]
-  toolbox run cl               # context 记忆体系机械校验 [docs]
+  toolbox run envdoc           # 环境体检（Java/GraalVM/docker/git 损坏 + 开场协议部署一致性）[env]
+  toolbox run fact-probe       # workflow 事实源取证底稿（构建系统/候选命令/CI/结构线索；dev-init §1 第 3 步 / §1.5 重验配套，alias: fprobe）[env]
+  toolbox run skill-verify     # project-local skill 锚点批量校验（路径/命令/类名 FQN 对仓库现实；dev-init §1.5 / ::audit 第 9 项配套，alias: sver）[docs]
+  toolbox run cl               # context 记忆体系机械校验（含挂载行）[docs]
+  toolbox run ctx-audit        # @audit 12 项清单呈现（--init = dev-init §2 接入验收机械档，人判 4 项另计）[docs]
+  toolbox run panel            # 开场绑定卡/::help/::board/::bind 候选的事实块（--root/--board/--deep/--debt/--mounts）→ dev-loop §3/§6；默认块含债行（U/D/P 粗计数+体检时效）
+  toolbox run mount-init --epic <名> --doc <docs/...md> [--create-doc]
+                               # ::bind 机械件：挂载骨架+CURRENT 一键初始化（--current-only 仅切指针；alias: mi）[ops]
+  toolbox run devlog <change|verify|note|lesson|bp> <epic> <文本>
+                               # dev-loop §2 记账单一入口（追加/验证/断点刷新，--json 预检）
+  toolbox run cmds             # ::help 全量命令清单数据源（COMMANDS.md §1-§2 派生 + 白名单对账）
   toolbox run uscan            # AI 不确定标记扫描（UNCERTAIN/TODO/隐患词）[test] → ai-sideeffect-guard §1
   toolbox run dscan            # 静默降级/吞异常扫描（DEGRADE + 形状）[test] → ai-sideeffect-guard §1
   toolbox run hyg              # 代码残留扫描（调试语句/注释代码；--deps 依赖膨胀）[test] → ai-sideeffect-guard §2

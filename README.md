@@ -1,7 +1,7 @@
 # skill-system
 ---
 status: active
-updated: 2026-09-25
+updated: 2026-10-07
 ---
 
 # AI 辅助开发 Skill 体系（设计意图与使用手册）
@@ -34,7 +34,7 @@ updated: 2026-09-25
 ```mermaid
 flowchart TD
     U[用户会话] --> R[触发路由：description 匹配 / 手动调用]
-    R --> L1[流程层 global：dev-loop 交互SOP与记忆 · dev-guide 流程引导 · project-index 索引机制 · memo-collector 备忘台账 · ai-sideeffect-guard 副作用收集 · docs-spec 文档规范]
+    R --> L1[流程层 global：dev-loop 交互SOP与记忆 · dev-guide 流程引导 · solution-admission 准入评估 · problem-triage 排错协议 · project-index 索引机制 · memo-collector 备忘台账 · ai-sideeffect-guard 副作用收集 · docs-spec 文档规范]
     R --> L2[项目规范层 project-local：后端仓 backend-dev · docs · workflow · native-build · runtime-metadata；前端仓 frontend-dev]
     L1 --> L3[项目索引层 project-local 随仓库：service-index 后端 · index 前端]
     L2 --> L3
@@ -46,7 +46,7 @@ flowchart TD
 
 - **冲突裁决链**：绑定 epic 的 memory 显式最新决策 ＞ 项目级 skill / AGENTS.md ＞ dev-loop 通用规约。memory 决策属有意覆盖；推翻项目规范时以 `[SSOT 修正]` 审计行留痕。
 - **挂载点两级**：
-  - global：`~/.agents/skills/<name>/SKILL.md`——**仅**跨项目通用机制（8 个，换项目零编辑）；
+  - global：`~/.agents/skills/<name>/SKILL.md`——**仅**跨项目通用机制（10 个，换项目零编辑）；
   - project-local：`<repo>/.agents/skills/<name>/SKILL.md`——项目专属规范 skill + 功能归属索引，随仓库版本化、随仓库 clone 即得，Zed 自动发现（新会话生效）。
 - **归属判定**：正文出现项目名/模块结构/构建命令/领域清单等**项目事实** → project-local；只讲机制与流程 → global。新 skill 默认 project-local，确认跨项目通用才升 global。
 - **加载方式**：description 与请求匹配时自动路由；`skill` 工具显式调用；project-local 未被自动发现时直接读 SKILL.md 路径。
@@ -54,9 +54,9 @@ flowchart TD
 ### 1.5 冷启动（新机器 / 新成员）
 
 - **项目数据零操作**：project-local 索引、`context/` 记忆、docs/ 随仓库 clone 即得；`CURRENT` 为个人指针被 gitignore——新 clone 视同无活跃 epic，首件事 `::file <名>` 绑定（dev-loop §3 视为常态，不报错）。
-- **global 技能包（`~/.agents/skills/`）**：独立 git 仓库，**已配远端**（GitHub `skill-system`）——新机器 `git clone <url> ~/.agents/skills` 一键拉取，技能包升级退化为 `git pull`；
-- **toolbox 运行时仓（`~/.agents/toolbox/`）**：嵌套 git 仓库，**现状无远端**——迁移兑底：整目录拷贝（纯脚本 + 运行时状态，rsync/scp 均可），配置远端后可同法 clone；两仓就位后 `toolbox init` 完成 shim 适配。
-- **自检**：新环境开场让 Agent 读任一 SKILL.md 确认可达即可开工。
+- **机制单仓（`~/.agents/`，remote `skill-system`）**：skills/ + toolbox/ + 全局文件（COMMANDS.md、`AGENTS.md` 开场协议 SSOT 等）同一 git 仓库——新机器 `git clone <url> ~/.agents` 一键就位，升级退化为 `git pull`；`toolbox init` 完成 shim 适配。体系仓自身同样吃狗粮：`~/.agents/context/`（`epic: misc` 常驻）承载系统级 devlog/lessons——skill/脚本/协议级改动的轮次在此留痕，`::audit` 十二项对体系仓自身生效（`context-lint --root ~/.agents`）。
+- **用户级开场协议（零记忆起步）**：SSOT `~/.agents/AGENTS.md` 随仓就位 → `cp ~/.agents/AGENTS.md ~/.zcode/AGENTS.md` 部署（其他 AI 工具贴同文入其全局指令，如 `~/.claude/CLAUDE.md`）；项目内跨工具兜底由各项目 AGENTS.md「会话初始化」节承担（dev-init §1 第 8 步）。
+- **自检**：新环境开场让 Agent 读任一 SKILL.md 确认可达；在有 `context/` 的项目里开窗口，应自动出会话绑定卡（无需任何口令）。
 
 ### 1.6 IDE 兼容性
 
@@ -141,11 +141,11 @@ AI 写码有三类隐性副作用极易随窗口蒸发：**实现未实证**、*
 | skill | 一句话职责 | 何时加载 |
 |---|---|---|
 | **dev-loop** | 无状态极简交互 SOP：Token 管控、tool 优先落盘、CURRENT/memory 绑定自恢复、长期记忆按大功能组织、增量日志协议与 ≥5 自动归并，配套管理指令（含 ::help 求助入口）与全局护栏（静默容错/资源拦截/2 次熔断/高危确认/静态强约束/契约保护/求助人类优先） | 所有编码会话（回复格式与日志规约的底座） |
-| **copilot-context** | AI 聊天 Copilot 的无状态上下文记忆机制：仿人脑分层记忆（工作/情景/语义/固化/遗忘），`context/chat/` 文件架构（memory SSOT + devlog 流水 + CURRENT 指针 + profile 用户画像），≥5 条自动归并、::forget 遗忘、2 次熔断与禁虚构/隐私拒存护栏；与 dev-loop 分域——聊天/助理归本 skill，编码归 dev-loop | 所有聊天/助理类会话需跨会话记住用户、话题与承诺，或会话重置后恢复上下文时 |
 | **dev-guide** | 大需求开发、结构性重构、复杂 Bug 的流程引导 Check List：入口判定 → 需求流七步 / Bug 修复流六步，硬卡点检查 + 跨 skill 指针速查；零裁决权（薄路由） | 大需求 / 结构性重构 / 复杂 Bug；单文件微调、散修、纯咨询勿加载 |
+| **problem-triage** | 排错协议 SSOT：长排查/重大故障的八侧粗分类、交接单三行格式（已排除/待验证假设/需要用户）、非阻塞接力循环、还原优先五步、解决验收三样齐 + 各侧人类排查者背景表（manual.md 为人类侧说明书）；触发归 dev-loop 护栏 3 | 长排查 / 重大故障 / 已触发熔断时（日常小修不用） |
 | **project-index** | 通用「功能 → 代码落点 + 文档落点」索引机制：表格式规范、L1/L2 两级调阅、防膨胀预算、维护协议、与 README/规范 skill 的边界 | 定位功能归属、建/维护项目索引、判断改动影响面 |
 | **solution-admission** | 方案准入评估：开工前三级分流（局部修补 / 能力补丁 / 临时补丁）+ 六条否决信号，命中即打回出结构性方案；临时补丁须留 `// PATCH:` 标记并落风险待办；补丁密度达阈值由 `ascan` 触发强制重构 | 大功能/跨模块改动开工前、AI 倾向用最小改动绕开结构时、评估引入方式取舍时；散修与小改动不过闸 |
-| **memo-collector** | 备忘收集台账：AI 回复与用户口述中的待办/风险/未验证假设/测试启发自动收集去重落盘——todos.md 按域分节（活跃 epic + misc 兑底，与 devlog 挂靠同规则），七类内联标签（功能/修复/优化/文档/环境/测试/风险），咒语类信号不落台账、当轮附注建议写入对应 SKILL.md 护栏（经确认，体系自进化）；完成后流转 done.md；人工打勾自动回收（脏读校验）、(block) 阻塞绝对优先、::todo-groom 语义洗盘；与 dev-loop 互补（断点=唯一下一步，本表=全部积压） | 回复将产生「待办/注意/风险/未验证假设/咒语」类信号、用户说「记个待办/收集备忘」、发送 ::todo ::todos ::tdone ::todo-clean ::todo-groom |
+| **memo-collector** | 备忘收集台账：AI 回复与用户口述中的待办/风险/未验证假设/测试启发自动收集去重落盘——待办两级落点与 devlog 挂靠同构（域内 `epics/<名>/todos.md` 按需创建 + 全局 `todos.md` misc/跨域兜底；机械件 `toolbox run todos`），七类内联标签（功能/修复/优化/文档/环境/测试/风险），咒语类信号不落台账、当轮附注建议写入对应 SKILL.md 护栏（经确认，体系自进化）；完成后流转 done.md；人工打勾自动回收（脏读校验）、(block) 阻塞绝对优先、::todo-groom 语义洗盘；与 dev-loop 互补（断点=唯一下一步，本表=全部积压） | 回复将产生「待办/注意/风险/未验证假设/咒语」类信号、用户说「记个待办/收集备忘」、发送 ::todo ::todos ::tdone ::todo-clean ::todo-groom |
 | **agent-toolbox** | 全局脚本工具箱机制：脚本池（全局 `~/.agents/toolbox/scripts/` + 项目 `<repo>/scripts/agent-tools/`，同名项目覆盖全局）、元工具 `toolbox`（规范 SSOT + 执行器：init/new/check/list/run-hooks/install-hooks/spec/remove）、脚本自描述头部规范 v1.1（双语言：shell 优先 + python 兜底）、退出码契约（0 过/1 未过/2 自身故障）、金丝雀自测、脚本登记制（持久脚本入池、禁止系统内散放）、fail-open 钩子巡检（bootstrap/audit/cron/pre-commit）；人与 AI 共用同一 CLI，无 AI 可完全人工操作 | 需要复杂校验/巡检/环境体检，新增/修改/退役定制脚本工具，或收编登记散落各处的持久脚本时；写脚本前先 `toolbox spec`，登记用 `toolbox check` |
 | **ai-sideeffect-guard** | AI 写码隐性副作用的标记与收集治理：未实证实现标 `// UNCERTAIN:`、猜测性兜底（空 catch/吞异常/返回默认值）标 `// DEGRADE:` + 兜底前 `[DEGRADE] <场景>` 日志；四工具机械收集（uscan/dscan/hyg/dtrig）与白名单、评估处置口径、完整生命周期示例 | 写码留下不确定实现或静默降级、清理写码残留、`::done`/`::audit`/发布前做副作用体检时 |
 | **docs-spec** | 工程文档（docs/）规范**机制层**（与 project-index 同构：机制 + 零项目数据）：域目录落点与生命周期切片命名、Frontmatter（status/updated）时效、Mermaid 唯一图表标准、废弃 Tombstone 与域墓碑、引用移动与 README 纯结构索引、写后自检 lint；域表与 lint 脚本由**项目** docs skill 填 | 新增/修改/移动/废弃工程文档时；项目接入需建 docs 数据 skill 时（dev-init §1 第 5 步，无 docs/ 则跳过不留空位） |
@@ -197,7 +197,7 @@ flowchart TD
 
 ### 3.2 指令速查（用户手动操作面）
 
-全部用户指令（dev-loop / memo-collector / copilot-context）、toolbox CLI、会话口令与触发权限矩阵统一收录于 **`COMMANDS.md`（命令手册）**；流程语义的唯一事实源仍为各 skill 正文对应 §节，toolbox 命令权威口径以 `toolbox <cmd> --help` 为准。「谁在什么时候做什么」的触发纪律分工见 §4.1。
+全部用户指令（dev-loop / memo-collector）、toolbox CLI、会话口令与触发权限矩阵统一收录于 **`COMMANDS.md`（命令手册）**；流程语义的唯一事实源仍为各 skill 正文对应 §节，toolbox 命令权威口径以 `toolbox <cmd> --help` 为准。「谁在什么时候做什么」的触发纪律分工见 §4.1。
 
 ### 3.3 场景 → 入口速查
 
@@ -206,8 +206,8 @@ flowchart TD
 | 评估引入方式 / 判断该重构还是打补丁 | solution-admission §1 | 开工前三级分流；六条否决信号中任一即判 S2 回结构性方案；S3 须留 PATCH 标记 + 落风险待办 |
 | 大需求 / 结构性重构 | dev-guide §1 | 七步流 + 四个硬卡点（准入/落点/验证/收尾），缺卡即未完成 |
 | Bug / 复杂排错 | dev-guide §2 | 先读 lessons 正文对照历史规则；同卡点 2 次熔断；收尾做 lesson 判定 |
+| 长排查 / 重大故障 / 已熔断 | problem-triage §3 | 八侧分流判侧别；交接单 + 接力循环 + 还原优先五步；意图侧立即问人 |
 | 散修 / 小改动 | dev-loop §3 misc | 不切 CURRENT，日志落 misc/devlog |
-| 聊天/助理会话跨会话记忆 | copilot-context | 冷启动读 `context/chat/CURRENT`；记忆禁虚构（只引记忆文件）；::forget 遗忘 |
 | 记待办 / 收集备忘 / 查积压 | memo-collector | 回复含「待办/注意/风险/未验证假设/咒语」自动收集（咒语→当轮建议写 SKILL.md）；::todos 全量一览；完成自动流转 done.md |
 | 查后端功能归属 | service-index | 归属表/别名映射 → 行内展开命令 L2；结果禁写回索引 |
 | 查前端功能归属 | index（前端仓库） | 归属表 → `npm run map:features -- <域>` 实时触点 |
@@ -234,7 +234,7 @@ flowchart TD
     MGR --> P["项目池：repo/scripts/agent-tools · 项目专属同名覆盖"]
     MGR --> S["state 与 .trash：本机运行时 gitignore"]
     L["法律层：agent-toolbox SKILL.md + toolbox spec"] -. 薄指针规范 .-> MGR
-    G --> R["双仓库版本控制：skills 本体仓 + toolbox 运行时仓"]
+    G --> R["单仓版本控制：~/.agents 一仓（skills/ + toolbox/ + 全局文件，§1.5）"]
 ```
 
 **七条设计原则**：
@@ -245,9 +245,9 @@ flowchart TD
 4. **人机同权**：唯一入口是 shim `~/.local/bin/toolbox`，AI 无专属通道；无 AI 时 `toolbox --help` 即说明书，巡检/增删全可人工操作。
 5. **退出码契约 + fail-open**：0 过 / 1 未过 / 2 自身故障，元工具与所有工具脚本一致；`run-hooks` 任一 FAIL → exit 1（供 pre-commit 门禁拦截），工具自身故障仅报 ERROR 不阻塞（防巡检自身瘫痪主流程）。
 6. **金丝雀自证**：guard 类工具（trigger≠manual）必带 `--self-test`，内嵌已知坏样本证明「能抓到坏」，防监控工具静默失效。
-7. **平台不 fork + 双仓库版本控制**：平台差异一律运行时探测，严禁 fork 平台副本文件；`~/.agents/skills`（skill 本体 + 元工具）与 `~/.agents/toolbox`（脚本池运行时）各自纳 git——新机器 clone 两仓库后 `toolbox init` 即完成适配。
+7. **平台不 fork + 机制单仓**：平台差异一律运行时探测，严禁 fork 平台副本文件；skills/、toolbox/ 与全局文件（COMMANDS.md、AGENTS.md 等）同入 `~/.agents` 一仓——新机器 `git clone <url> ~/.agents` 一键就位，`toolbox init` 即完成适配（对齐 §1.5）。
 
-**命令面（薄指针，防双源）**：子命令清单、语法与参数一律以 `toolbox --help` / `toolbox <cmd> --help` 为唯一事实源——命令增删只改元工具与 `agent-toolbox` SKILL.md「命令面」节，**不改本文与 COMMANDS.md**。当前分组（导航用，非权威）：生命周期 `init`/`new`/`check`/`remove`；发现与执行 `list`/`suggest`/`run`/`recent`/`propose`/`approve`；钩子与规范 `run-hooks`/`install-hooks`/`spec`/`self-test`。退出码契约见 `COMMANDS.md` §4。
+**命令面（薄指针，防双源）**：子命令清单、语法与参数一律以 `toolbox --help` / `toolbox <cmd> --help` 为唯一事实源——命令增删只改元工具与 `agent-toolbox` SKILL.md「命令面」节，**不改本文与 COMMANDS.md**。当前分组（导航用，非权威）：生命周期 `init`/`new`/`check`/`remove`；发现与执行 `list`/`suggest`/`run`/`recent`/`propose`/`approve`；钩子与规范 `run-hooks`/`install-hooks`/`spec`/`self-test`。退出码契约见 `COMMANDS.md` §3。
 
 **典型流程**：
 
@@ -281,6 +281,7 @@ flowchart TD
 - **大需求开工即 `::bind`**：拆解交给 `::next`（≤3 候选选定）；全程硬卡点自检；收尾 `::done`（内含强制审计，有 ⚠ 先修复再收尾）。
 - **窗口管理**：看到自动归并附注（⚙️）后，方便时重置会话；恢复成本 = 一句「继续」。
 - **健康节奏**：多机同步 / 分支切换 / 久别重开后跑 `::audit`；里程碑收尾、lessons 归并出新规则后跑 `::verify`（趁热验真）。
+- **体系复盘（月度或大里程碑后，在 `~/.agents` 跑一次）**：`::audit` 对体系仓自身；`toolbox list` 盘点零使用工具提议退役（agent-toolbox 使用时机 5）；看 `::done` 收敛度量趋势（固化递增/待定递减）与 dev-guide 降级散修频率（频繁则收紧其 description）；lessons 中已验证多次的条目提议升舱进规范 skill（dev-loop §8 收敛复盘口径）。只看既有数据，不新增容器。
 - **改 docs 后**：跑 §八两条 lint + `sh scripts/agent-tools/docs-index-lint.sh`；**前端改码后**：`npx tsc --noEmit` + `npm test`（pretest 自动跑架构护栏）。
 - **git 纪律**：Agent 不执行任何 git 写操作（commit/建分支/合并/推送）——收尾只**生成** git 指令建议供人工复制执行（dev-loop §2「收尾 Git 指令建议」）；`context/` 随功能 PR 一起提交。部署不立 skill：执行走项目池脚本（如 deploy-cloud-run），流程/回滚以脚本头部指向的 runbook 为准。
 
@@ -296,6 +297,7 @@ flowchart TD
 2. **事实指针化**：规范类 skill 正文严禁自带易漂移事实（模块结构/领域清单/编译命令/依赖版本/环境限制），一律指针到项目事实源（workflow、项目索引）。
 3. **指针必须可 grep**：有节号用 §，纯命名节用「节名」；写入前核对锚点真实存在；被引用 skill 改节号/节名的当轮，同步所有引用方。
 4. **检测网**：::audit 第 9 项（指针抽查）+ 第 10 项（skill 卫生：事实指针化 + description 预算）+ 第 11 项（toolbox 巡检）+ 第 12 项（验证缺口抽查）兜底。
+5. **退役有口径**：skill 过时/合并时——删目录 → 当轮 grep 全部引用方同步（含 COMMANDS.md、README.md、dev-guide 速查；context-lint 指针面会机械抓失效引用兜底）→ COMMANDS/README 清账 → devlog 审计行留痕；退役的工具脚本走 `toolbox remove`（agent-toolbox）。
 
 ### 4.5 反模式速查
 
@@ -319,6 +321,7 @@ flowchart TD
 |---|---|
 | 交互协议 / 日志 / 指令 / 护栏 | dev-loop `SKILL.md` |
 | 需求与 Bug 流程卡点 | dev-guide `SKILL.md` |
+| 长排查协议（八侧/交接单/接力循环/还原优先） | problem-triage `SKILL.md` |
 | 索引机制与维护协议 | project-index `SKILL.md` |
 | 备忘收集协议（待办/完成台账） | memo-collector `SKILL.md` |
 | 模块结构 / 构建命令 / 环境限制（后端） | 后端仓 `.agents/skills/stock-calculator-workflow/SKILL.md` |

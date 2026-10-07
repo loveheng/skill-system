@@ -66,7 +66,13 @@ updated: 2026-09-15
 
 ## 6. 写后自检 lint
 
-改完 docs 后执行（glob 按本仓 docs 层级调整），输出为空即合规：
+改完 docs 后执行。**首选池内工具**（toolbox 已初始化的环境）：
+
+```sh
+toolbox run docs-lint   # frontmatter 四字段 + 根目录平铺 + updated 软自查——本节 ①②③ 的机械实现
+```
+
+无 toolbox 环境的手工兜底（glob 按本仓 docs 层级调整），输出为空即合规：
 
 ```sh
 # ① frontmatter 四项校验（缺开头 / status 非法 / updated 非法 / 字段超量）
@@ -79,7 +85,7 @@ find docs -maxdepth 1 -name '*.md' ! -name README.md
 git --no-pager diff --name-only HEAD -- docs
 ```
 
-- ①② 为机械硬校验；项目若有专属 lint/收集脚本（收集视图 + README↔docs 双向覆盖校验），路径由项目 docs skill 声明。
+- ①② 为机械硬校验；项目若有专属 lint/收集脚本（收集视图 + README↔docs 双向覆盖校验），路径由项目 docs skill 声明，与全局 `docs-lint` 互补不互替。
 - ③ 机器无法区分实质/基础设施改动，硬校验（强制 `updated` = 当天）会与 §1 例外冲突，故只做软自查。
 
 ## 7. 反模式

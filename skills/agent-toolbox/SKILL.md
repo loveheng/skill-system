@@ -67,11 +67,11 @@ AI 嵌入流程的四个辅助命令：`suggest`（读 git 变更推断类别，
 3. 新工具首次 `check` 登记 = 引入新能力，经用户确认后执行；`remove`/`install-hooks` 属破坏性/侵入操作，执行前列影响并确认；
 4. 平台差异只允许运行时探测实现（对齐元工具内 Adapter 模式），严禁 fork 文件；
 5. 无 AI 时系统可完全人工操作：`toolbox --help` 即人类说明书，`~/.agents/toolbox/README.md` 为快速上手；
-6. 版本控制（双仓库）：`~/.agents/skills/`（本体仓库：全部 skill + 元工具 `toolbox-mgr.py`）与 `~/.agents/toolbox/`（运行时仓库：工具脚本池）各自纳 git；改动后各自随手 commit（对齐「切换机器前 commit」纪律）；`toolbox/state/`、`toolbox/.trash/`、`__pycache__/` 为本机运行时已忽略；新机器 = 分别 clone 两仓库到对应路径 → `toolbox init` 完成适配（shim 在仓库外，由 init 生成）。
+6. 版本控制（机制单仓）：`~/.agents/` 一仓纳入全部——skills/（skill 本体 + 元工具 `toolbox-mgr.py`）、toolbox/（脚本池运行时）、全局文件（COMMANDS.md、AGENTS.md 等）；改动后随手 commit（对齐「切换机器前 commit」纪律）；`toolbox/state/`、`toolbox/.trash/`、`__pycache__/` 为本机运行时已忽略；新机器 = `git clone <url> ~/.agents` → `toolbox init` 完成适配（shim 在仓库外，由 init 生成）。
 
 ## 接线（对 dev-loop 的唯一侵入）
 
 - dev-loop §3 开场：`toolbox run-hooks bootstrap --quiet`（exit 0 静默；FAIL/故障不阻塞恢复，仅附一行 ⚠）；
 - dev-loop ::audit 第 11 项：`toolbox run-hooks audit --quiet`，FAIL/ERROR 转 ⚠；
 - **`--quiet` 语义（写死）**：静默**一切**输出（含 FAIL 明细），只留退出码（0/1）供判定——需要明细时去掉 `--quiet` 重跑同命令，或裸跑对应工具；
-- 当前挂载：bootstrap → env-doctor（开场环境体检）；audit → context-lint（context/ 数据面 + skill 指针面机械校验，::audit 机械项代跑；裸跑=逐条明细，--json=单行结论）。
+- 当前挂载：bootstrap → env-doctor（开场环境体检）；audit → context-lint（context/ 数据面 + skill 指针面 + 挂载行机械校验，::audit 机械项代跑；裸跑=逐条明细，--json=单行结论）+ admission-scan（PATCH 标记债与补丁密度，solution-admission §5）。

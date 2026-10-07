@@ -1,11 +1,11 @@
 #!/bin/sh
-# context 记忆体系机械校验：数据面（CURRENT/头部/断点/积压/尺寸/孤儿/todos/done/decisions）
+# context 记忆体系机械校验：数据面（CURRENT/头部/断点/挂载行/积压/尺寸/孤儿/todos/done/decisions）
 # + 指针面（<skill> §N 与 <skill>「节名」引用锚点存在性）。audit 钩工具，供 @audit 机械项代跑。
 #
 # toolbox-script
 # format: v1
 # name: context-lint
-# summary: context 记忆体系机械校验：CURRENT/头部/断点/积压/尺寸/孤儿/devlog [验证] 缺口/todos 格式(v2/v3 含状态/层/重 元数据)与 [once]/[long] 时效 + skill 指针存在性
+# summary: context 记忆体系机械校验：CURRENT/头部/断点/挂载行/积压/尺寸/孤儿/devlog [验证] 缺口/todos 格式(v2/v3 含状态/层/重 元数据)与 [once]/[long] 时效 + skill 指针存在性
 # trigger: audit
 # cat: docs
 # alias: cl
@@ -33,11 +33,15 @@ context-lint —— context/ 记忆体系 + skill 指针面机械校验（agent-
 
 检查面:
   数据面  context/CURRENT 格式与悬空；epics/* 头部字段与角色一致；断点行恰 1 条；
+          挂载行（epic memory.md 首部恰 1 条且路径存在、非 deprecated，misc 豁免——
+          dev-loop §3 文档锚定）；
           devlog 待归并 >=5 与未归并 [SSOT 修正]；memory >150 行软上限；
           devlog 最近 [变更] 的同日 [验证] 账本缺口（dev-loop §7 第 12 项）；
           孤儿 epic（devlog 30 天未动）；lessons 待归并；
-          todos/done/decisions 头部、节序（misc 恒为末节）与行格式；
+          todos 两级（全局 misc 兜底 + epics/<名>/todos.md 域文件）头部、行格式
+          与域归属一致，全局节序（## misc 恒为末节）；
           todos [once] 过 30 天事件窗口 / [long] 超 90 天未重评
+          done/decisions 头部与行格式；
   指针面  各 SKILL.md / README.md / COMMANDS.md 中 <skill> §N 与
           <skill>「节名」引用（含 stock-calculator- 前缀别名）的锚点存在性；
           中文数字节号（如 §八）与裸 § 自引用保守跳过，仍归人工抽查
@@ -139,41 +143,92 @@ lint_epic() { # lint_epic <epic目录(带尾斜杠)> <当前epic名|空> <epic�
   return 0
 }
 
+lint_mounts() { # 挂载行校验（dev-loop §3 文档锚定）：非 misc epic 挂载行恰 1 条且路径真实存在
+  for d in "$CTX"/epics/*/; do
+    [ -d "$d" ] || continue
+    e=$(basename "$d")
+    [ "$e" = misc ] && continue
+    m=${d}memory.md
+    [ -f "$m" ] || continue   # 骨架缺失已由 lint_epic 报，此处不重复
+    n=$(count '^- \[挂载\]' "$m")
+    if [ "$n" -eq 0 ]; then
+      add warn MOUNT "$e/memory.md 无挂载行（正式主线须文档锚定；存量缺挂载不强制补，提示级）"
+    elif [ "$n" -gt 1 ]; then
+      add error MOUNT "$e/memory.md 挂载行 $n 条（应恒 1 条，去重保留）"
+    else
+      mp=$(sed -n 's/^-[[:space:]]*\[挂载\][[:space:]]*//p' "$m" 2>/dev/null | head -n 1)
+      case "$mp" in
+        /*) tp=$mp ;;
+        *) tp="$ROOT/$mp" ;;
+      esac
+      if [ -z "$mp" ]; then
+        add error MOUNT "$e/memory.md 挂载行缺文档路径"
+      elif [ ! -f "$tp" ]; then
+        add warn MOUNT "$e/memory.md 挂载失效：$mp 不存在（修复路径或经确认迁移）"
+      else
+        st=$(sed -n '2,12{s/^status:[[:space:]]*//p}' "$tp" 2>/dev/null | head -n 1)
+        case "$st" in
+          deprecated*) add warn MOUNT "$e/memory.md 挂载文档 $mp 已 deprecated（墓碑不可挂，::bind 重挂继任文档）" ;;
+        esac
+      fi
+    fi
+  done
+  return 0
+}
+
+TODO_RE='^- \[ \] (\[[0-9]{4}-[0-9]{2}-[0-9]{2}\] )?\((功能|修复|优化|文档|环境|测试|风险)\) ?(\[once\]|\[long\])? ?(\(block\))? ?(\((降级|暂缓|候)\))? ?(\(层:L[0-4]\))? ?(\(重:(轻|中|重)\))? .+ ?(\(src: (ai|用户)(, [A-Za-z0-9_-]+)?\))? *$'
+
+lint_todos_file() { # lint_todos_file <文件>：单文件共享检查（头部/行格式/emoji/[x]/生命周期）
+  f=$1
+  hdr_has "$f" 'memo: todos' || add error HDR "$f 头部缺 memo: todos"
+  head -n 7 "$f" 2>/dev/null | grep -qE 'format: v(2|3)' || add error HDR "$f 头部 format 非 v2/v3（memo-collector §0）"
+  bad=$(bad_lines "$f" '^- \[ \]' "$TODO_RE")
+  [ -n "$bad" ] && add error TODOS "$f 待办行格式违规 行号: $bad（口径见 memo-collector §0）"
+  emoji=$(grep -nE '^- \[ \] .*🅿' "$f" 2>/dev/null | sed 's/:.*//' | tr '\n' ' ')
+  [ -n "$emoji" ] && add error TODOS "$f 含 emoji 状态（🅿）行号: $emoji（v3 禁用 emoji，改用 (降级)/(暂缓)/(候)，口径 memo-collector §0）"
+  x=$(count '^- \[[xX]\]' "$f")
+  [ "$x" -gt 0 ] && add warn RECLAIM "$f 有 $x 条人工打勾 [x] 待回收（移入 done.md 并从列表删除）"
+  c30=$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -v-30d +%Y-%m-%d 2>/dev/null || printf '')
+  c90=$(date -d '90 days ago' +%Y-%m-%d 2>/dev/null || date -v-90d +%Y-%m-%d 2>/dev/null || printf '')
+  if [ -n "$c30" ]; then
+    once_old=$(grep '\[once\]' "$f" 2>/dev/null | sed -n 's/^- \[ \] \[\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)\].*/\1/p' | awk -v c="$c30" '$0 <= c' | wc -l | tr -d '[:space:]')
+    [ "$once_old" -gt 0 ] && add warn ONCE "$f 有 $once_old 条 [once] 已过 30 天事件窗口（确认完成转 done 或过期清除）"
+  fi
+  if [ -n "$c90" ]; then
+    long_old=$(grep '\[long\]' "$f" 2>/dev/null | sed -n 's/^- \[ \] \[\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)\].*/\1/p' | awk -v c="$c90" '$0 <= c' | wc -l | tr -d '[:space:]')
+    [ "$long_old" -gt 0 ] && add warn LONG "$f 有 $long_old 条 [long] 超 90 天未重评（下个 @done 逐条重评：保留/转动作/关闭）"
+  fi
+  return 0
+}
+
 lint_todos() {
+  # 域文件：epics/<名>/todos.md（头部 epic 须与目录一致）
+  total=0
+  for f in "$CTX"/epics/*/todos.md; do
+    [ -f "$f" ] || continue
+    lint_todos_file "$f"
+    e=$(basename "$(dirname "$f")")
+    head -n 7 "$f" 2>/dev/null | grep -qE "^epic: $e *$" || add error HDR "$f 头部 epic 与目录不符（应 epic: $e）"
+    total=$((total + $(count '^- \[ \]' "$f")))
+  done
+  # 全局兜底：仅 ## misc 一节（节序 + 迁移残留检查）
   f=$CTX/todos.md
   [ -f "$f" ] || return 0
-  hdr_has "$f" 'memo: todos' || add error HDR "todos.md 头部缺 memo: todos"
-  head -n 7 "$f" 2>/dev/null | grep -qE 'format: v(2|3)' || add error HDR "todos.md 头部 format 非 v2/v3（memo-collector §0）"
+  lint_todos_file "$f"
+  total=$((total + $(count '^- \[ \]' "$f")))
   lasth=$(grep -n '^## ' "$f" 2>/dev/null | tail -n 1)
   if [ -z "$lasth" ]; then
     add error TODOS 'todos.md 无任何节（缺 ## misc 兜底节）'
   else
     ht=$(printf '%s' "$lasth" | sed 's/^[0-9]*://')
     case "$ht" in
-      '## misc'|'## misc'[' ']*|'## misc'*) : ;;   # misc 行允许尾随空格
+      '## misc'*) : ;;   # misc 行允许尾随文字
       *) add error TODOS 'todos.md 最后一节非 ## misc（misc 恒为末节）' ;;
     esac
+    stray=$(grep -c '^## ' "$f" 2>/dev/null || true)
+    [ "${stray:-0}" -gt 1 ] && add warn MIGRATE "todos.md 含非 misc 节 $((stray - 1)) 个（v3 域级迁移残留——epic 节迁 epics/<名>/todos.md，memo-collector §0）"
   fi
-  TODO_RE='^- \[ \] (\[[0-9]{4}-[0-9]{2}-[0-9]{2}\] )?\((功能|修复|优化|文档|环境|测试|风险)\) ?(\[once\]|\[long\])? ?(\(block\))? ?(\((降级|暂缓|候)\))? ?(\(层:L[0-4]\))? ?(\(重:(轻|中|重)\))? .+ ?(\(src: (ai|用户)(, [A-Za-z0-9_-]+)?\))? *$'
-  bad=$(bad_lines "$f" '^- \[ \]' "$TODO_RE")
-  [ -n "$bad" ] && add error TODOS "todos.md 待办行格式违规 行号: $bad（口径见 memo-collector §0）"
-  emoji=$(grep -nE '^- \[ \] .*🅿' "$f" 2>/dev/null | sed 's/:.*//' | tr '\n' ' ')
-  [ -n "$emoji" ] && add error TODOS "todos.md 含 emoji 状态（🅿）行号: $emoji（v3 禁用 emoji，改用 (降级)/(暂缓)/(候)，口径 memo-collector §0）"
-  x=$(count '^- \[[xX]\]' "$f")
-  [ "$x" -gt 0 ] && add warn RECLAIM "todos.md 有 $x 条人工打勾 [x] 待回收（移入 done.md 并从列表删除）"
-  o=$(count '^- \[ \]' "$f")
-  [ "$o" -gt 30 ] && add warn GROOM "todos.md 待办 $o 条 > 30（建议 @todo-groom 洗盘）"
-  # 生命周期标注处置（memo-collector §0）：[once] 过事件窗口 / [long] 久未重评
-  c30=$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -v-30d +%Y-%m-%d 2>/dev/null || printf '')
-  c90=$(date -d '90 days ago' +%Y-%m-%d 2>/dev/null || date -v-90d +%Y-%m-%d 2>/dev/null || printf '')
-  if [ -n "$c30" ]; then
-    once_old=$(grep '\[once\]' "$f" 2>/dev/null | sed -n 's/^- \[ \] \[\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)\].*/\1/p' | awk -v c="$c30" '$0 <= c' | wc -l | tr -d '[:space:]')
-    [ "$once_old" -gt 0 ] && add warn ONCE "todos.md 有 $once_old 条 [once] 已过 30 天事件窗口（确认完成转 done 或过期清除）"
-  fi
-  if [ -n "$c90" ]; then
-    long_old=$(grep '\[long\]' "$f" 2>/dev/null | sed -n 's/^- \[ \] \[\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)\].*/\1/p' | awk -v c="$c90" '$0 <= c' | wc -l | tr -d '[:space:]')
-    [ "$long_old" -gt 0 ] && add warn LONG "todos.md 有 $long_old 条 [long] 超 90 天未重评（下个 @done 逐条重评：保留/转动作/关闭）"
-  fi
+  [ "$total" -gt 30 ] && add warn GROOM "待办总量 $total 条 > 30（全局+域文件聚合，建议 @todo-groom 洗盘）"
   return 0
 }
 
@@ -243,6 +298,7 @@ lint_data() {
       lint_epic "$d" "$cur" "$(basename "$d")"
     done
   fi
+  lint_mounts
   lint_lessons
   lint_todos
   lint_done
@@ -354,6 +410,8 @@ total-merged: 0
 last-merge: none
 ---
 
+- [挂载] docs/demo/spec.md
+
 # demo
 
 - [2026-09-19] 初始结论
@@ -361,6 +419,8 @@ last-merge: none
 ## 断点
 - [断点] 下一步：等待拆解
 EOF
+  mkdir -p "$T/clean/docs/demo"
+  printf -- '---\nstatus: active\nupdated: 2026-09-19\n---\n\n# demo spec\n' > "$T/clean/docs/demo/spec.md"
   cat > "$c/epics/demo/devlog.md" <<'EOF'
 ---
 dev-loop: devlog
@@ -420,13 +480,21 @@ format: v3
 
 # 待办列表
 
-## demo
+## misc
+- [ ] [2026-09-19] (风险) 项目级风险样例（跨域兜底落全局） (src: ai)
+EOF
+  cat > "$c/epics/demo/todos.md" <<'EOF'
+---
+memo: todos
+format: v3
+epic: demo
+---
+
+# demo · 域内待办
 - [ ] [2026-09-19] (功能) 示例待办一 (src: 用户)
 - [ ] [2026-09-19] (修复) (block) 示例阻塞项 (src: ai)
 - [ ] [2026-09-19] (优化) [long] 长期事项样例（近期不应触发重评提示） (src: ai)
 - [ ] [2026-09-19] (功能)(层:L4)(重:中) v3 元数据样例 (src: ai)
-
-## misc
 EOF
   cat > "$c/done.md" <<'EOF'
 ---
@@ -461,6 +529,8 @@ format: v1
 epic: other
 last-merge: none
 ---
+
+- [挂载] docs/ghost.md
 
 正文无断点
 EOF
@@ -543,7 +613,7 @@ EOF
   else
     echo "fail: 坏样本应 exit 1，实际 $rc:"; sed 's/^/  /' "$T/o3"; fail=1
   fi
-  for needle in '[CURRENT]' '[HDR]' '[CHECKPOINT]' '[MERGE]' '[SSOT]' '[TODOS]' '[DONE]' '[RECLAIM]' '[VERIFY]' '[ONCE]'; do
+  for needle in '[CURRENT]' '[HDR]' '[CHECKPOINT]' '[MOUNT]' '[MERGE]' '[SSOT]' '[TODOS]' '[DONE]' '[RECLAIM]' '[VERIFY]' '[ONCE]'; do
     if grep -qF "$needle" "$T/o3"; then
       echo "pass: 坏样本抓到 $needle"
     else
