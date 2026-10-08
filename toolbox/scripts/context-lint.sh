@@ -119,7 +119,8 @@ lint_epic() { # lint_epic <epic目录(带尾斜杠)> <当前epic名|空> <epic�
   check_hdr "$g" 'dev-loop: devlog' "epic: $name" yes
   p=$(tail -n 20 "$g" 2>/dev/null | grep -c '^- \[' || true)
   [ "$p" -ge 5 ] && add warn MERGE "epics/$name/devlog.md 待归并 $p 条（>=5 触发归并）"
-  s=$(count '\[SSOT 修正\]' "$g")
+  # 只数日志行（^- [日期] [类型]），骨架样板行含该字面量但不算条目（D1 误报复核 2026-10-07）
+  s=$(count '^- \[.*\[SSOT 修正\]' "$g")
   [ "$s" -gt 0 ] && add warn SSOT "epics/$name/devlog.md 有未归并 [SSOT 修正] $s 条（应立即归并）"
   if [ "$name" != misc ] && [ "$name" != "$cur" ]; then
     [ -n "$(find "$g" -mtime +30 -print 2>/dev/null)" ] && add warn ORPHAN "epics/$name 疑似孤儿（devlog 30 天未动）——提示 @done 或确认搁置"

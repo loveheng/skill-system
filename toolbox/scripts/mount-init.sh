@@ -241,12 +241,15 @@ do_current() {
   CREATED="$CREATED context/CURRENT"
 }
 
+# 横幅注记：CREATE_DOC/DRY 默认值 0 非空，${VAR:+} 会误展开（D5 实测 2026-10-07），改数值比较拼串
+CDN=''; [ "$CREATE_DOC" -eq 1 ] && CDN='（含建文档）'
+DRYN=''; [ "$DRY" -eq 1 ] && DRYN='（dry-run）'
 if [ "$JSON" -eq 1 ]; then
-  json_out OK info "预检通过: epic $EPIC ← $DOC${CREATE_DOC:+（含建文档骨架）}${DRY:+（dry-run）}——去掉 --json 执行"
+  json_out OK info "预检通过: epic $EPIC ← $DOC$CDN$DRYN——去掉 --json 执行"
   exit 0
 fi
 
-echo "==> 挂载初始化: $EPIC ← $DOC${CREATE_DOC:+（含建文档）}${DRY:+（dry-run，不落盘）}"
+echo "==> 挂载初始化: $EPIC ← $DOC$CDN$DRYN"
 TODAY=$(date +%F)
 
 if [ "$CREATE_DOC" -eq 1 ] && [ ! -f "$DOC_PATH" ]; then
@@ -286,7 +289,7 @@ total-merged: 0
 last-merge: none
 ---
 
-（开发过程日志按行追加：[变更]/[验证]/[note]/[承诺]/[SSOT 修正]；≥5 条自动归并进 memory.md——dev-loop §2）
+（开发过程日志按行追加：[变更]/[验证]/[note]/[SSOT 修正]；≥5 条自动归并进 memory.md——dev-loop §2）
 EOF
 
 do_current

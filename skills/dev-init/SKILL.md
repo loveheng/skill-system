@@ -11,8 +11,8 @@ description: 新项目/新仓库/存量项目初始化 AI 开发 skill 体系的
 
 ## 0. 入口判定
 
-- 新项目/新仓库首次接入（空白板）→ 走 §1 全流程
-- 存量项目上初始化（已有代码库：无 context/ 或无 project-local skill，或代码大规模重写后 skill 整体过期）→ 先跑 §1.5 存量对账，再按 §1 补缺
+- 新项目/新仓库首次接入（空白板 = 无任何 skill 体系痕迹：无 context/、无 project-local skill、无 toolbox 项目池——有代码无体系也属此列）→ 走 §1 全流程
+- 存量项目上初始化（已有部分体系痕迹：有 context/ 或有 project-local skill 或有项目池，或代码大规模重写后 skill 整体过期）→ 先跑 §1.5 存量对账，再按 §1 补缺
 - 已接入项目补缺（**部分**缺件，如只有索引没有事实源）→ 直接跳对应步骤，已完成项 ✓ 跳过；缺的若是主体（context/ 与 project-local skill 俱无）→ 按上行走 §1.5
 - 日常编码任务 → 不走本流程（dev-guide §0）；新机器/新环境准备（clone 两仓）→ README §1.5
 
@@ -22,12 +22,12 @@ description: 新项目/新仓库/存量项目初始化 AI 开发 skill 体系的
 
 1. **项目形态判定**：非编码工作区（纯文档/笔记/资料库，无代码迭代）不接入本体系——本体系只服务编码项目；判定为非编码 → 全清单跳过（按需建 `docs/` 即可），留一行理由。
 2. **context/ 记忆骨架**：`context/CURRENT`（`epic: misc`）+ `epics/misc/`（memory.md + devlog.md）+ lessons.md；todos.md/done.md 可缺省（memo-collector §0：文件缺失时现写模板）——目录契约见 dev-loop §0。**骨架捷径**：`toolbox run scaffold` 可一键生成（幂等不覆盖）。**存量分支**：`context/` 已存在但文件不合当前契约（无 YAML 头 / 旧格式 / lessons 落错层 / CURRENT 被 commit）→ 走 §1.5 存量对账第 2 项迁移，勿直接「已存在 → 跳过」。
-3. **事实源 skill（workflow 类）**：从 README/构建脚本/CI **现场实测取证**提炼——模块结构、包名、构建/测试命令、环境硬约束（终端/写入限制）。结构与粒度参照既有项目实例（样例：后端仓 project-local 的 stock-calculator-workflow，非全局）；内容严禁虚构，命令至少实测跑通一条。**取证捷径**：`toolbox run fact-probe` 先出候选事实底稿（构建系统/候选命令/测试框架/CI/结构与环境线索/skill 体系现状）——底稿严禁直接采信，实测与提炼仍为本步义务（脚本只收集证据）。**存量分支**：workflow 已存在 → 按 §1.5 第 1 项逐条对当前代码重验，**全对才通过**（命令跑通 ≠ 事实源一致）。
+3. **事实源 skill（workflow 类）**：从 README/构建脚本/CI **现场实测取证**提炼——模块结构、包名、构建/测试命令、环境硬约束（终端/写入限制）。结构与粒度参照既有项目实例（样例：任一实存 project-local 的 `<repo>-workflow`，如 goodshare-workflow；指针须可定位实存路径）；内容严禁虚构，命令至少实测跑通一条。**取证捷径**：`toolbox run fact-probe` 先出候选事实底稿（构建系统/候选命令/测试框架/CI/结构与环境线索/skill 体系现状）——底稿严禁直接采信，实测与提炼仍为本步义务（脚本只收集证据）。**存量分支**：workflow 已存在 → 按 §1.5 第 1 项逐条对当前代码重验，**全对才通过**（命令跑通 ≠ 事实源一致）。
 4. **project-local 索引**：按 project-index `template.md` 建 `<repo>/.agents/skills/<repo-name>-index/SKILL.md`——只登记域级锚点，禁止一次性铺满（project-index「表格式规范」「维护协议」）。**存量分支**：索引已存在 → 按 §1.5 第 1 项核对锚点与代码一致。
 5. **项目规范 skill（按需）**：从现有代码提炼写法模式（backend/frontend 类，粒度对齐既有项目规范 skill）；小项目可跳过——workflow + 索引即最小可用集。**落点与索引同级**：一律建在本仓 `<repo>/.agents/skills/`（project-local，随仓库版本化），**不进 global**（global 只放跨项目机制）；新建守 README §4.4（description 预算 + 事实指针化）。
    - **docs 单独判定（先取证存量，再按项目类型补充；不留空位）**：
      - **已有 `docs/`**：① 先取证存量结构——列目录树 + 抽查 2~3 篇的 frontmatter/命名/切片习惯，提炼现状口径（现有域、惯用命名、是否已有 lint 脚本）；② 建 `<repo>-docs/SKILL.md` 只填三项项目数据：域目录表（以存量域表为准，不臆造新域）/ 本仓 lint 脚本路径 / 本仓例外（存量与 `docs-spec` 的冲突记入此处，不静默改写存量文档；**分歧较大时**（根平铺/无 frontmatter/命名混乱）向用户出示分歧清单，由用户决定是否一次性存量迁移——迁移按 docs-spec §4/§5 墓碑与引用修复纪律执行，不属本步默认动作）；规范机制一律指针到 `docs-spec §1`–§7，**严禁复制规范正文**（防双源）。**文档头部区块（`status`/`updated` frontmatter、写后自检 lint、三层索引机制）是跨项目全局 SSOT**——项目 skill 不得把头部区块规范本身复制进去（否则全局升级时各项目副本漂移，踩 `docs-spec §7` 反模式）。
-     - **无 `docs/`**：不建空骨架，**按项目类型推导初始域结构**（后端服务 → `architecture/` + `deploy/`，有对外接口加 `api/`；Web/前端 → `design/` + `api/`；CLI/库 → `reference/` + `cli/`；文档站 → `guide/` + `api/`；其余兜底 `architecture/` + `guide/`），生成 `docs/README.md` 纯结构索引（docs-spec §5）+ 至多 1~2 个种子文档（如指向主 README 的 `architecture/overview`，**内容必须提炼自主 README/代码现状，严禁占位文案**——否则即违反本步「不建空骨架」初衷），禁止一次性铺满五切片——后续按项目实际长域。
+     - **无 `docs/`**：不建空骨架，**按项目类型推导初始域结构**（后端服务 → `architecture/` + `deploy/`，有对外接口加 `api/`；Web/前端 → `design/` + `api/`；CLI/库 → `reference/` + `cli/`；文档站 → `guide/` + `api/`；其余兜底 `architecture/` + `guide/`），生成 `docs/README.md` 纯结构索引（docs-spec §5）+ 至多 1~2 个种子文档（如指向主 README 的 `architecture/overview`，**内容必须提炼自主 README/代码现状，严禁占位文案**——否则即违反本步「不建空骨架」初衷），禁止一次性铺满五切片——后续按项目实际长域。本步实际创建了 `docs/` 时，同样须建 `<repo>-docs` skill（§1.5 第 4 项硬卡点同适用）。
      - 两种情形收口均按 §2「三处同步」把 docs skill 域表同步进 `docs/README.md` 与项目索引的文档落点列。
 6. **toolbox 项目池（脚本文件夹初始化）**：`toolbox init --project` 建 `scripts/agent-tools/` **并落 `README.md` 占位**——空目录不入 git，占位文件保证池随仓库 clone 即得；项目池随仓库版本化，同名工具覆盖全局池。**收编**：仓库内已有持久散放脚本（仓库根、`scripts/` 下的 .sh/.mjs/.py 等）按 agent-toolbox「散乱脚本治理」处理——评估复用价值 → 合规化（补头部块/`--help`/`--json`/`--self-test`）→ `toolbox check` 入池 → 原址删除或改一行薄指针（check 门禁不豁免）。**骨架捷径**：`toolbox run scaffold` 内部会调用 `toolbox init --project`。
 7. **副作用收集白名单骨架（项目级，非全局）**：仓库根建 `.uncertainty-whitelist` 与 `.degrade-whitelist` 空文件（uscan/dscan 自动加载，缺失不报错）；文件仅含头注释（用途 + 格式：每行一个正则、`#` 注释 + 收录标准：逐处核读定性「有意降级/已知误报」才收录、修复后删行恢复监控），**禁预置条目**——首跑全量基线（首次 ::done；存量项目按 §1.5 第 5 项基线前移至接入时点）评估后才逐条登记（口径与格式见 ai-sideeffect-guard §3）。**骨架捷径**：`toolbox run scaffold` 已生成则 ✓ 跳过。
@@ -68,7 +68,7 @@ description: 新项目/新仓库/存量项目初始化 AI 开发 skill 体系的
 - skill 间互引指针可 grep（§节号/节名锚点真实存在）
 - 新登记脚本过 `toolbox check`，`toolbox list` 可现场派生
 - 机器级机械件在场（fail-open 记 ⚠ 不阻塞）：panel/cmds `toolbox list` 可见；用户级开场协议 `~/.zcode/AGENTS.md` 已部署（SSOT `~/.agents/AGENTS.md`）
-- 跑一遍 `::audit` 作为接入基线，此后交回 dev-loop 日常纪律
+- 接入基线跑 `toolbox run ctx-audit`（12 项机械预填 + ❓ 人判项 AI 补判），不触发交互式 `::audit` 指令（dev-loop §9 触发纪律）；此后交回 dev-loop 日常纪律
 
 ## 3. 维护协议与边界（防双源）
 

@@ -5,7 +5,7 @@
 # toolbox-script
 # format: v1
 # name: devlog
-# summary: dev-loop 记账单一入口：devlog 追加(变更/验证/自定义)/lessons 追加/断点刷新/未归并计数；--json 预检不落盘
+# summary: dev-loop 记账单一入口：devlog 追加(变更强制配对验证/验证/自定义)/lessons 追加/断点刷新/未归并计数；--json 预检不落盘
 # trigger: manual
 # cat: ops
 # platform: unix
@@ -28,8 +28,11 @@ devlog — dev-loop 记账单一入口（devlog 追加 / lessons 追加 / 断点
   devlog [--root <项目根>] [--json] <子命令> [参数...]
 
 子命令:
-  change  <epic> <文本...>          追加  - [日期] [变更]: 文本          → context/epics/<epic>/devlog.md
-  verify  <epic> <文本...>          追加  - [日期] [验证]: 文本          → 同上
+  change  <epic> [--verify "<命令 → 结果>" | --no-verify "<原因>"] <文本...>
+                                    追加 - [日期] [变更]: 文本 → context/epics/<epic>/devlog.md
+                                    并强制同轮配对追加 - [日期] [验证]: ...（配对合同，缺一 FAIL）：
+                                    --verify 记真实验证结果；--no-verify 记「未执行: 原因」留痕
+  verify  <epic> <文本...>          追加  - [日期] [验证]: 文本          → 同上（补记/复验用；change 已强制配对）
   note    <epic> <标签> <文本...>   追加  - [日期] [<标签>]: 文本        → 同上（决策 / SSOT 修正 / 环境坑…）
   lesson  <epic> <模块> <文本...>   追加  - [<模块>] 文本 (Ref: <epic>)  → context/lessons.md
   bp      <epic> <文本...>          刷新 context/epics/<epic>/memory.md 断点行
@@ -61,14 +64,42 @@ die2() {
   exit 2
 }
 
+# $1=文本 $2=字段名：非空、非全空白、单行
+check_single_line() {
+  if [ -z "$1" ] || [ -z "$(printf '%s' "$1" | tr -d ' \t')" ]; then
+    die1 "$2 为空或全空白" "传入要记录的内容"
+  fi
+  if [ "$(printf '%s' "$1" | wc -l)" -gt 0 ]; then
+    die1 "$2 含换行（日志条目须单行）" "把内容压成一行再记"
+  fi
+}
+
 # "$@" → TEXT：非空、非全空白、单行
 validate_text() {
   TEXT="$*"
-  if [ -z "$TEXT" ] || [ -z "$(printf '%s' "$TEXT" | tr -d ' \t')" ]; then
-    die1 "文本为空或全空白" "传入要记录的内容"
+  check_single_line "$TEXT" "文本"
+}
+
+# change 配对合同（验证账本，dev-loop §2.4）：--verify 与 --no-verify 二选一，缺一 FAIL
+check_pairing() {
+  if [ -n "$VERIFY_TXT" ] && [ -n "$NOVERIFY_TXT" ]; then
+    die1 "--verify 与 --no-verify 互斥（二选一）" "真实验证用 --verify；未执行留痕用 --no-verify"
   fi
-  if [ "$(printf '%s' "$TEXT" | wc -l)" -gt 0 ]; then
-    die1 "文本含换行（日志条目须单行）" "把内容压成一行再记"
+  if [ -z "$VERIFY_TXT" ] && [ -z "$NOVERIFY_TXT" ]; then
+    die1 "change 缺验证配对：[变更] 必须同轮带 [验证]" \
+      'devlog change <epic> --verify "<命令 → 结果>" <文本> ｜ 未验证时 --no-verify "<原因>"'
+  fi
+}
+
+# change 配对追加：[变更] 行 + 同轮 [验证] 行（走 append_dedupe；TEXT/VERIFY_TXT/NOVERIFY_TXT/TODAY 已就绪）
+append_change_pair() {
+  _f="$1"
+  if [ -n "$VERIFY_TXT" ]; then
+    append_dedupe "$_f" "- [$TODAY] [变更]: $TEXT"
+    append_dedupe "$_f" "- [$TODAY] [验证]: $VERIFY_TXT"
+  else
+    append_dedupe "$_f" "- [$TODAY] [变更]: $TEXT"
+    append_dedupe "$_f" "- [$TODAY] [验证]: 未执行: $NOVERIFY_TXT"
   fi
 }
 
@@ -169,6 +200,30 @@ self_test() {
   # 10 多行文本被拒（子Shell 断言退出码，不中止自测）
   ( ROOT="$T"; JSON=0; validate_epic "$E"; validate_text "$(printf 'a\nb')" ) >/dev/null 2>&1
   chk "多行文本被拒" "$?" "1"
+  # 11 change 配对合同：缺配对被拒
+  VERIFY_TXT=""; NOVERIFY_TXT=""
+  ( ROOT="$T"; JSON=0; validate_epic "$E"; validate_text "无配对变更"; check_pairing ) >/dev/null 2>&1
+  chk "change 缺配对被拒" "$?" "1"
+  # 12 --verify 配对：[变更]+[验证] 各 +1
+  VERIFY_TXT="t.sh → 通过"; NOVERIFY_TXT=""
+  validate_text "配对变更甲"
+  append_change_pair "$D" >/dev/null
+  chk "verify 配对 [变更] 计数" "$(grep -c '\[变更\]' "$D")" "2"
+  chk "verify 配对 [验证] 计数" "$(grep -c '\[验证\]' "$D")" "2"
+  # 13 --no-verify 配对：未执行留痕
+  VERIFY_TXT=""; NOVERIFY_TXT="纯文档轮"
+  validate_text "配对变更乙"
+  append_change_pair "$D" >/dev/null
+  chk "no-verify 未执行留痕" "$(grep -c '\[验证\]: 未执行:' "$D")" "1"
+  chk "no-verify [变更] 计数" "$(grep -c '\[变更\]' "$D")" "3"
+  # 14 互斥被拒
+  VERIFY_TXT="a → 通过"; NOVERIFY_TXT="原因"
+  ( ROOT="$T"; JSON=0; check_pairing ) >/dev/null 2>&1
+  chk "verify/no-verify 互斥被拒" "$?" "1"
+  # 15 JSON 预检缺配对 FAIL
+  VERIFY_TXT=""; NOVERIFY_TXT=""
+  ( ROOT="$T"; JSON=1; validate_epic "$E"; validate_text "预检变更"; check_pairing ) >/dev/null 2>&1
+  chk "JSON 预检缺配对 FAIL" "$?" "1"
 
   rm -rf "$T"
   echo "self-test: $pass 通过 / $failed 失败"
@@ -197,7 +252,10 @@ if [ "$SELFTEST" = 1 ]; then self_test; exit $?; fi
 [ -d "$ROOT/context" ] || die1 "项目根无 context/ 目录: $ROOT" "cd 到项目根，或传 --root <项目路径>"
 ROOT=$(cd "$ROOT" && pwd) || die2 "解析项目根失败"
 
-[ $# -gt 0 ] || { usage; exit 1; }
+if [ $# -eq 0 ]; then
+  [ "$JSON" = 1 ] && die1 "缺少子命令" "见 devlog --help"
+  usage; exit 1
+fi
 OP="$1"; shift
 case "$OP" in
   change|verify|note|lesson|bp|count) ;;
@@ -207,14 +265,41 @@ esac
 TODAY=$(date +%F)
 
 case "$OP" in
-  change|verify)
-    [ $# -ge 2 ] || die1 "$OP 需要 <epic> 与 <文本...>" "devlog $OP <epic> <文本...>"
-    if [ "$OP" = change ]; then TAG="变更"; else TAG="验证"; fi
+  change)
+    [ $# -ge 2 ] || die1 "change 需要 <epic> 与 <文本...>" "devlog change <epic> [--verify <账本> | --no-verify <原因>] <文本...>"
+    validate_epic "$1"; shift
+    VERIFY_TXT=""; NOVERIFY_TXT=""
+    _orig=$#; _seen=0
+    while [ "$_seen" -lt "$_orig" ]; do
+      case "$1" in
+        --verify)    [ $# -ge 2 ] || die1 "--verify 缺参数" '传 "<命令 → 结果>"'; VERIFY_TXT="$2"; shift 2; _orig=$((_orig-2)); continue ;;
+        --no-verify) [ $# -ge 2 ] || die1 "--no-verify 缺参数" "传未执行原因"; NOVERIFY_TXT="$2"; shift 2; _orig=$((_orig-2)); continue ;;
+        *) set -- "$@" "$1"; shift; _seen=$((_seen+1)) ;;
+      esac
+    done
+    validate_text "$@"
+    check_pairing
+    FILE="$ROOT/context/epics/$EPIC/devlog.md"
+    [ -f "$FILE" ] || die1 "devlog.md 不存在: $FILE" "先 @file/@bind 绑定 epic（会创建骨架）"
+    if [ -n "$VERIFY_TXT" ]; then
+      check_single_line "$VERIFY_TXT" "--verify 文本"
+    else
+      check_single_line "$NOVERIFY_TXT" "--no-verify 原因"
+    fi
+    if [ "$JSON" = 1 ]; then
+      if [ -n "$VERIFY_TXT" ]; then json_ok "预检通过: 将配对追加 [变更]+[验证] 到 ${FILE#"$ROOT"/}"
+      else json_ok "预检通过: 将追加 [变更]+[验证]未执行留痕 到 ${FILE#"$ROOT"/}"; fi
+      exit 0
+    fi
+    append_change_pair "$FILE"
+    ;;
+  verify)
+    [ $# -ge 2 ] || die1 "verify 需要 <epic> 与 <文本...>" "devlog verify <epic> <文本...>"
     validate_epic "$1"; shift
     validate_text "$@"
     FILE="$ROOT/context/epics/$EPIC/devlog.md"
     [ -f "$FILE" ] || die1 "devlog.md 不存在: $FILE" "先 @file/@bind 绑定 epic（会创建骨架）"
-    LINE="- [$TODAY] [$TAG]: $TEXT"
+    LINE="- [$TODAY] [验证]: $TEXT"
     if [ "$JSON" = 1 ]; then json_ok "预检通过: 将追加到 ${FILE#"$ROOT"/}"; exit 0; fi
     append_dedupe "$FILE" "$LINE"
     ;;
