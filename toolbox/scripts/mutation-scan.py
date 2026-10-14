@@ -5,6 +5,7 @@
 对目标源码文件注入微小逻辑变异（条件反转 / 边界偏移 / 布尔翻转），
 逐个变异体跑测试命令：测试变红 = 变异体被杀灭（断言有效）；
 测试仍绿 = 变异体存活（该处测试是空心的，抓不住真 bug）。
+支持语言: py / js / ts / java / dart（--lang 强制，默认按扩展名推断）。
 
 用法:
   mutation-scan --files <文件,文件...> --test-cmd "<命令>" [--root <目录>]
@@ -78,10 +79,11 @@ LANG_OPS = {
     "py": PY_OPS,
     "js": JS_JAVA_OPS,
     "java": JS_JAVA_OPS,
+    "dart": JS_JAVA_OPS,  # Dart 算子与 Java 同构（&&/||、true/false、比较符）
 }
-EXT_LANG = {".py": "py", ".js": "js", ".ts": "js", ".tsx": "js", ".jsx": "js", ".java": "java"}
+EXT_LANG = {".py": "py", ".js": "js", ".ts": "js", ".tsx": "js", ".jsx": "js", ".java": "java", ".dart": "dart"}
 TEST_PATH_RE = re.compile(r"(^|/)(tests?|spec|__tests__)(/|$)")
-TEST_FILE_RE = re.compile(r"(test_[^/]*\.py$|[^/]*_test\.py$|\.(test|spec)\.[A-Za-z]+$|Test[^/]*\.java$)")
+TEST_FILE_RE = re.compile(r"(test_[^/]*\.py$|[^/]*_test\.py$|\.(test|spec)\.[A-Za-z]+$|Test[^/]*\.java$|[^/]*_test\.dart$)")
 
 def is_test_path(rel):
     p = rel.replace(os.sep, "/")
@@ -194,7 +196,7 @@ def main():
     ap.add_argument("--files", help="逗号分隔的目标源码文件")
     ap.add_argument("--root", default=".", help="扫描根目录")
     ap.add_argument("--test-cmd", help="测试命令字符串")
-    ap.add_argument("--lang", choices=["py", "js", "java"], help="强制语言")
+    ap.add_argument("--lang", choices=["py", "js", "java", "dart"], help="强制语言")
     ap.add_argument("--max", type=int, default=30, help="最多变异体数")
     ap.add_argument("--timeout", type=int, default=120, help="单次测试超时秒")
     ap.add_argument("--md", help="导出 Markdown 报告路径")
