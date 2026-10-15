@@ -68,6 +68,7 @@ AI 嵌入流程的四个辅助命令：`suggest`（读 git 变更推断类别，
 4. 平台差异只允许运行时探测实现（对齐元工具内 Adapter 模式），严禁 fork 文件；
 5. 无 AI 时系统可完全人工操作：`toolbox --help` 即人类说明书，`~/.agents/toolbox/README.md` 为快速上手；
 6. 版本控制（机制单仓）：`~/.agents/` 一仓纳入全部——skills/（skill 本体 + 元工具 `toolbox-mgr.py`）、toolbox/（脚本池运行时）、全局文件（COMMANDS.md、AGENTS.md 等）；改动后随手 commit（对齐「切换机器前 commit」纪律）；`toolbox/state/`、`toolbox/.trash/`、`__pycache__/` 为本机运行时已忽略；新机器 = `git clone <url> ~/.agents` → `toolbox init` 完成适配（shim 在仓库外，由 init 生成）。
+7. **薄 CLI 管道原则（写死）**：工具脚本只做基础 CLI 包装——调用原生命令（如 `tsc --noEmit`、`pytest -q`）并按契约返回退出码/过滤后的纯输出（JSON/错误行），**严禁在工具层编写业务转换胶水**（二次解析、状态推断、业务规则判断）。复杂度留在业务代码与 skill 规范里；业务变动时工具链不改或少改，避免「业务一变、契约先碎、Agent 陷进修工具的无限递归」。
 
 ## 接线（对 dev-loop 的唯一侵入）
 

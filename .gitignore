@@ -4,3 +4,5 @@ __pycache__/
 toolbox/state/
 toolbox/.trash/
 context/CURRENT
+context/epics/*/*.bp.lock
+context/epics/*/*.bp.tmp

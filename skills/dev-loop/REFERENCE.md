@@ -32,7 +32,7 @@
 8. **头部校验**：`head -n 7` 各记忆文件，字段缺失/角色与目录不符即 ⚠；
 9. **指针抽查**：grep 各薄指针（COMMANDS.md 命令手册、dev-guide §3 命令速查、项目索引关联行）与各 memory.md 挂载行（路径存在、非 deprecated 墓碑；机械项由 audit 钩 context-lint 挂载面代跑）的锚点串是否在目标文件真实存在——不存在即 ⚠，当场修指针；改过其他 skill 节号/节名后必查（引用方含 COMMANDS.md），例行审计抽查 2~3 条控成本。另含 **decisions↔memory 契约对账**：decisions.md 各节最新 1~2 条在对应 epic 的 memory 正文有无约束型契约行——缺失即 ⚠，经确认补 `::remember`（::adr 单向联动无写入校验，此处兜底）。project-local skill 对代码现实的锚点存在性（路径/命令/类名 FQN）可跑 `toolbox run skill-verify` 代跑（机械半边，语义核实留 AI）。
 10. **skill 卫生抽查（事实指针化）**：规范类 skill 正文严禁自带易漂移事实（模块结构/领域清单/编译命令/依赖版本号/环境限制），一律指针到项目事实源（workflow 类 skill、项目索引），grep 抽查疑似事实锚点，正文自带非指针出处即 ⚠ 当场改写；description 是路由触发信号非正文，只留项目锚点+技术栈+高频症状关键词，细节沉正文；description 机械上限 550 字符（ctx-audit 项 J 检查，超限即 ⚠ 压缩——加载器拒载边界的实测值，该检查属加载器行为微操，加载器升级后与本句一同退役）。新增 skill 或改过事实性段落后必查，例行抽查 2~3 条控成本。
-11. **toolbox 巡检（agent-toolbox）**：toolbox 已初始化（`~/.agents/toolbox/` 存在）时执行 `toolbox run-hooks audit --quiet`——**以退出码判定**：exit 0 = ✓，exit 1 = ⚠（`--quiet` 静默一切输出，只看退出码；需 FAIL/ERROR 明细时再跑不带 `--quiet` 的 `toolbox run-hooks audit`，或 `toolbox run cl` 裸跑），按 memo-collector 口径转 `风险` 待办；空池/未初始化直接 ✓ 跳过；
+11. **toolbox 巡检（agent-toolbox）**：toolbox 已初始化（`~/.agents/toolbox/` 存在）时执行 `toolbox run-hooks audit --quiet`——**以退出码判定**：exit 0 = ✓，exit 1 = ⚠（`--quiet` 静默一切输出，只看退出码；需 FAIL/ERROR 明细时再跑不带 `--quiet` 的 `toolbox run-hooks audit`，或 `toolbox run cl` 裸跑），按 memo-collector 口径转 `风险` 待办；空池/未初始化直接 ✓ 跳过；另跑 uscan/dscan/ascan 三扫描各一次 `--json`，`stale_whitelist` > 0 即 ⚠（失效白名单行＝卫生级——工具不因其改退出码，裁决收口在本项；处置：对照 `--md` 明细核对后清理确认失效行，恢复监控）；
 12. **验证缺口抽查**：grep devlog 尾部最近 2~3 条 `[变更]` 行是否各有同日 `[验证]` 账本行——[变更] 无 [验证]、或 [验证] 写「未执行」无理由即 ⚠，补验证或确认补因；人工抽查（机械化待办，口径同第 9/10 项）。
 
 **修复纪律**：琐碎修复（归并积压、补记、降级 Ref、重写断点）列清单经确认当场执行；结构性修复（拆分、归档）转 `::done` 或用户决策。**审计轮不追加任何日志**（豁免规则适用）。
@@ -45,6 +45,6 @@
 
 ## 8. epic 收尾 (Closure)
 
-- **`::done`**（**misc 常驻，不适用收尾**）：第一步**强制执行 §7 审计，存在 ⚠ 项即中止收尾、先修复**；通过后执行**收敛复盘**（升舱后输出一行度量，见下）；随后**待办先处置清零**（memo-collector §4：完成流转/转全局/删除，经确认，`epics/<名>/todos.md` 随目录归档）；再将 memory.md 提炼为 **≤10 行结论块**（保留头部与 `## 断点` 改写为完结说明），目录移入 `context/archive/<名>/`，`decisions.md` 中该 epic 节若有条目则整体移入 `context/archive/<名>/decisions.md` 并删除该节，`CURRENT` 改写为 `epic: none`，一行回复确认。收尾后该 epic 退出活跃集，恢复流程永不再读它（按需人工翻档）。
+- **`::done`**（**misc 常驻，不适用收尾**）：第一步**强制执行 §7 审计，存在 ⚠ 项即中止收尾、先修复**；通过后执行**收敛复盘**（升舱后输出一行度量，见下）；随后**标记强制结算**——本 epic 引入的 `// UNCERTAIN:` / `// DEGRADE:` 标记逐条清零，三选一经确认：补测试实证后删标（删标判据 = ai-sideeffect-guard §6）/ 升级正式 ADR（::adr 落 decisions.md）/ 转 todos `(风险)` 待办并注明 epic 归档；带日期指纹的标记按日期核龄，批量定性须逐条留痕防收尾洗白——**逾期未处置标记是唯一阻断项**（标记本身是信标非罪证，阻断边界见 SKILL.md §2）；结算后必出**收尾汇总卡**（标记/白名单/Hypothesis 实数，全零也出卡，数字以四工具扫描与台账实数为准）；随后**待办先处置清零**（memo-collector §4：完成流转/转全局/删除，经确认，`epics/<名>/todos.md` 随目录归档）；再将 memory.md 提炼为 **≤10 行结论块**（保留头部与 `## 断点` 改写为完结说明），目录移入 `context/archive/<名>/`，`decisions.md` 中该 epic 节若有条目则整体移入 `context/archive/<名>/decisions.md` 并删除该节，`CURRENT` 改写为 `epic: none`，一行回复确认。收尾后该 epic 退出活跃集，恢复流程永不再读它（按需人工翻档）。
 
 **收敛复盘（::done 内置，升舱 L2→L3）**：收尾时逐项核对——① lessons 正文中已被验证多次、表述稳定的条目 → 提议固化进规范/事实源 skill（原条目降级一行 `Ref:`，对齐 §7 第 5 项口径）；② devlog/待办中同类澄清 ≥2 次的约束 → 按 memo-collector「咒语」行固化信号提议升级事实源；③ todos 中 `[long]` 条目按 memo-collector §4 重评；④ ::verify 近期 ❌ 项确认已批量 SSOT 修正。全部走「提议 → 用户确认 → 落位」，AI 不静默改写 skill。收尾回复附一行**收敛度量**：`收敛: +N 固化 / M 待定 → 事实源`（N=本轮升舱条数，M=仍留 L2 的条数）——跨 epic 观察趋势，固化递增、待定递减即体系在收敛。

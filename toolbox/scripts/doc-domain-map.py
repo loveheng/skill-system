@@ -40,8 +40,8 @@ def find_index_skill(root):
                 with open(p, encoding="utf-8") as f:
                     if "归属表" in f.read():
                         return p
-            except Exception:
-                pass
+            except (OSError, UnicodeDecodeError):
+                pass  # 有意降级：单个 SKILL.md 不可读则跳过，仅影响候选定位的回退路径
     return None
 
 

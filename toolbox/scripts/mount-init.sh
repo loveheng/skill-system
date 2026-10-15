@@ -62,6 +62,14 @@ fail() { # fail <remedy> <message...>：校验未通过，exit 1
 }
 
 exec_self_test() {
+  # SELF 绝对化：本自测会 cd 进沙箱 $T，相对 $0（如 `sh mount-init.sh`）在沙箱内失路径
+  case "$SELF" in
+    /*) : ;;
+    *)
+      _d=$(cd "$(dirname "$SELF")" && pwd) || return 2
+      SELF="$_d/$(basename "$SELF")"
+      ;;
+  esac
   T=$(mktemp -d) || return 2
   cd "$T" || { rm -rf "$T"; return 2; }
   git init -q . 2>/dev/null
@@ -113,8 +121,12 @@ exec_self_test() {
   grep -q '^# 幽灵文档$' docs/design/ghost.md || { echo 'fail: T10 文档标题缺失'; ok=0; }
   grep -qF -- '- [挂载] docs/design/ghost.md' context/epics/ghost/memory.md || { echo 'fail: T10 挂载行缺失'; ok=0; }
   grep -q '^epic: ghost$' context/CURRENT || { echo 'fail: T10 CURRENT 未改写'; ok=0; }
+  # T11 已存在空 epic 目录同样拒（原子 mkdir 闸门——并发先到者等价于已存在，且拒时不落骨架）
+  mkdir -p context/epics/race
+  sh "$SELF" --root "$T" --epic race --doc docs/design/race.md --create-doc >/dev/null 2>&1 && { echo 'fail: T11 已存在空目录应拒'; ok=0; }
+  [ ! -f context/epics/race/memory.md ] || { echo 'fail: T11 被拒不得落骨架'; ok=0; }
   rm -rf "$T"
-  if [ "$ok" -eq 1 ]; then echo 'self-test: OK（全链路+五类拦截+切换前置+dry-run+json 预检）'; return 0; fi
+  if [ "$ok" -eq 1 ]; then echo 'self-test: OK（全链路+五类拦截+切换前置+dry-run+json 预检+原子 mkdir 闸门）'; return 0; fi
   return 2
 }
 
@@ -218,7 +230,19 @@ if [ "$CURRENT_ONLY" -eq 1 ]; then
 fi
 
 # ---- 完整挂载：骨架 + 指针 ----
-[ -d "$EPIC_DIR" ] && fail '该 epic 已有骨架（续绑走 --current-only，或换名；拒绝覆盖）' "epic 已存在: $EPIC"
+# 原子认领（ADR 轻量级防御 2026-10-15）：mkdir 即唯一闸门——失败即已存在（并发先到者），
+# 消除「检查后创建」的 TOCTOU 窗；dry-run/--json 只读预检不认领。
+if [ "$DRY" -eq 1 ] || [ "$JSON" -eq 1 ]; then
+  [ -d "$EPIC_DIR" ] && fail '该 epic 已有骨架（续绑走 --current-only，或换名；拒绝覆盖）' "epic 已存在: $EPIC"
+else
+  mkdir -p "$(dirname "$EPIC_DIR")" 2>/dev/null || fail '检查项目根与权限（--root）' "epics 父目录创建失败: $(dirname "$EPIC_DIR")"
+  if ! mkdir "$EPIC_DIR" 2>/dev/null; then
+    if [ -d "$EPIC_DIR" ]; then
+      fail '该 epic 已有骨架（续绑走 --current-only，或换名；拒绝覆盖）' "epic 已存在: $EPIC"
+    fi
+    fail '检查项目根与权限（--root）' "epic 目录创建失败: $EPIC_DIR"
+  fi
+fi
 
 CREATED=''
 do_write() { # do_write <rel路径>（内容自 stdin）

@@ -1,0 +1,1 @@
+- toolbox/params.env 是敏感文件（edit_file 被护栏拒）：参数口径文档化写到工具头部注释/params 行，不动 params.env 本身

@@ -88,7 +88,7 @@ def probe_build(root):
                 if mods:
                     notes.append("modules: %s" % ",".join(mods[:12]))
             except OSError:
-                pass
+                pass  # 有意降级：pom 读取失败则跳过增补说明，探测信息属尽力而为
             notes.append("候选命令: %s" % ("./mvnw -q compile" if os.path.exists(os.path.join(root, "mvnw")) else "mvn -q compile"))
             notes.append("候选命令: %s" % ("./mvnw test" if os.path.exists(os.path.join(root, "mvnw")) else "mvn test"))
         elif name == "Gradle":
@@ -125,7 +125,7 @@ def probe_build(root):
                     notes.append("顶层目标: %s" % ",".join(dict.fromkeys(targets[:12])))
                     notes.append("候选命令: make <目标>")
             except OSError:
-                pass
+                pass  # 有意降级：Makefile 读取失败则跳过增补说明，探测信息属尽力而为
         found.append((name, os.path.relpath(hit, root), notes))
     dotnet = glob.glob(os.path.join(root, "*.sln")) + glob.glob(os.path.join(root, "**", "*.csproj"), recursive=True)
     if dotnet:

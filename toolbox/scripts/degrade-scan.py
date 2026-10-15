@@ -25,7 +25,7 @@
 toolbox-script
 format: v1
 name: degrade-scan
-summary: 扫 DEGRADE 标记 + 空catch/吞异常/兜底返回默认值等静默降级路径，产出评估报告（通用）
+summary: 扫 DEGRADE 标记 + 空catch/吞异常/兜底返回默认值等静默降级路径，产出评估报告＋白名单存活（反事实 GC）探针（通用）
 trigger: manual
 cat: test
 alias: dscan
@@ -82,28 +82,37 @@ DEGRADE_WL_FILE = ".degrade-whitelist"
 
 
 def load_whitelist(root, override_file=None):
-    raws = list(BUILTIN_WHITELIST)
+    # 返回 [(compiled_re, raw_text), ...]——raw_text=None 为内置意图词，
+    # 非 None 为白名单文件行（供逐行存活归因，raw_text 用于反事实 GC 报告）。
+    entries = []
+    for rx in BUILTIN_WHITELIST:
+        try:
+            entries.append((re.compile(rx), None))
+        except re.error:
+            continue
     wl_path = override_file if override_file else os.path.join(root, DEGRADE_WL_FILE)
     if wl_path and os.path.isfile(wl_path):
         with open(wl_path, encoding="utf-8", errors="replace") as f:
-            raws += [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
-    wxs = []
-    for rx in raws:
-        try:
-            wxs.append(re.compile(rx))
-        except re.error:
-            continue  # 非法正则跳过，不致整体扫描失败
-    return wxs
+            for ln in f:
+                t = ln.strip()
+                if not t or t.startswith("#"):
+                    continue
+                try:
+                    entries.append((re.compile(t), t))
+                except re.error:
+                    continue  # 非法正则跳过，不致整体扫描失败
+    return entries
 
 
 def is_whitelisted(rel, ctx_lines, wl):
-    for w in wl:
+    # 返回首个命中条目下标（-1=未命中）；raw_text 非 None 的条目才计入白名单存活归因
+    for i, (w, _raw) in enumerate(wl):
         if w.search(rel):
-            return True
+            return i
         for ln in ctx_lines:
             if w.search(ln):
-                return True
-    return False
+                return i
+    return -1
 
 
 def find_root(explicit):
@@ -120,12 +129,15 @@ def find_root(explicit):
 
 
 def walk_files(root):
+    self_real = os.path.realpath(__file__)  # 自排除：扫描器不扫自身（文档/金丝雀样本属自指误报）
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
         for fn in sorted(filenames):
             ext = fn.rsplit(".", 1)[-1] if "." in fn else ""
             if ext in LANG_EXT:
-                yield os.path.join(dirpath, fn)
+                p = os.path.join(dirpath, fn)
+                if os.path.realpath(p) != self_real:
+                    yield p
 
 
 def extract_block(lines, start_i, start_col):
@@ -267,7 +279,7 @@ def scan_catch_family(lines, catch_re, is_py=False, is_js=False):
             hits.append((catch_lineno + 1, "兜底返回默认值", "catch 后返回 null/false/空集合，调用方无感知", ctx))
         elif is_js and any("console." in s for _, s in body) and len(body) <= 2:
             hits.append((catch_lineno + 1, "JS仅console吞异常", "catch 体仅 console 输出", ctx))
-        elif is_py and all(s == "pass" for _, s in body):
+        elif is_py and all(s.split("#", 1)[0].strip() == "pass" for _, s in body):
             hits.append((catch_lineno + 1, "except仅pass(吞异常)", "except 体仅 pass", ctx))
     return hits
 
@@ -275,16 +287,26 @@ def scan_catch_family(lines, catch_re, is_py=False, is_js=False):
 def scan_file(path, rel, wl):
     hits = []
     suppressed = 0
+    line_counts = {}  # 白名单文件行 raw → 该行抑制的发现数（存活归因）
     with open(path, encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
     ext = path.rsplit(".", 1)[-1]
+
+    def _consider(ctx, lineno, tag, summary):
+        nonlocal suppressed
+        i = is_whitelisted(rel, ctx, wl)
+        if i >= 0:
+            suppressed += 1
+            raw = wl[i][1]
+            if raw is not None:
+                line_counts[raw] = line_counts.get(raw, 0) + 1
+        else:
+            hits.append((rel, lineno, tag, summary))
+
     # 标记层
     for idx, line in enumerate(lines):
         if DEGRADE_RE.search(line):
-            if is_whitelisted(rel, [line], wl):
-                suppressed += 1
-            else:
-                hits.append((rel, idx + 1, "DEGRADE标记", line.strip()[:100]))
+            _consider([line], idx + 1, "DEGRADE标记", line.strip()[:100])
     # 形状层
     try:
         if ext == "java":
@@ -296,35 +318,44 @@ def scan_file(path, rel, wl):
         else:
             raw = []
         for lineno, tag, summary, ctx in raw:
-            if is_whitelisted(rel, ctx, wl):
-                suppressed += 1
-            else:
-                hits.append((rel, lineno, tag, summary))
+            _consider(ctx, lineno, tag, summary)
     except Exception:
-        pass  # 单文件解析失败不中断全局扫描
-    return hits, suppressed
+        pass  # 有意降级：单文件解析失败不中断全局扫描
+    return hits, suppressed, line_counts
 
 
 def run_checks(root, md_out, wl_file=None):
     wl = load_whitelist(root, wl_file)
     results = []
     suppressed = 0
+    line_counts = {}
     for path in walk_files(root):
         rel = os.path.relpath(path, root)
-        h, s = scan_file(path, rel, wl)
+        h, s, lc = scan_file(path, rel, wl)
         results += h
         suppressed += s
+        for k, v in lc.items():
+            line_counts[k] = line_counts.get(k, 0) + v
     # 结果统一为 (rel, lineno, tag, summary)
     results = [r for r in results if len(r) == 4]
     results.sort(key=lambda r: (r[0], r[1]))
 
-    if not results:
-        return True, "info", "未发现静默降级/吞异常路径（白名单抑制 %d 处已知项）" % suppressed
+    # 白名单存活（反事实 GC 探针）：某文件行当前抑制 0 处发现
+    # = 删掉它不会多报任何一条 → 失效白名单（僵尸行），建议清理恢复监控。
+    file_lines = [raw for (_rx, raw) in wl if raw is not None]
+    stale = [ln for ln in file_lines if line_counts.get(ln, 0) == 0]
+    stale_note = ""
+    if stale:
+        stale_note = "；失效白名单 %d 行（当前未抑制任何发现，建议清理）" % len(stale)
 
-    msg = "发现 %d 处静默降级/吞异常路径（%s），白名单抑制 %d 处已知项，建议逐处评估是否应上报 (md 可导出明细)" % (
+    if not results:
+        return True, "info", "未发现静默降级/吞异常路径（白名单抑制 %d 处已知项）%s" % (suppressed, stale_note), stale
+
+    msg = "发现 %d 处静默降级/吞异常路径（%s），白名单抑制 %d 处已知项，建议逐处评估是否应上报 (md 可导出明细)%s" % (
         len(results),
         "标记" if all(r[2] == "DEGRADE标记" for r in results) else "标记+形状",
         suppressed,
+        stale_note,
     )
     if md_out:
         with open(md_out, "w", encoding="utf-8") as f:
@@ -334,9 +365,14 @@ def run_checks(root, md_out, wl_file=None):
             f.write("| 位置 | 类型 | 内容 |\n|---|---|---|\n")
             for rel, ln, tag, summary in results:
                 f.write("| %s:%d | %s | %s |\n" % (rel, ln, tag, summary))
+            if stale:
+                f.write("\n## 失效白名单（反事实：删此行不会多报任何发现，建议清理恢复监控）\n\n")
+                f.write("| 白名单行 | 当前抑制 |\n|---|---|\n")
+                for ln in stale:
+                    f.write("| %s | 0 |\n" % ln)
             f.write("\n> 评估建议: 兜底路径若属「有意降级」补注释说明理由；若属「未核实的猜测」\n")
             f.write("> 升级为 UNCERTAIN/DEGRADE 标记，高危项（正确性/数据一致性）转 todos 风险类。\n")
-    return False, "warn", msg
+    return False, "warn", msg, stale
 
 
 def self_test():
@@ -369,7 +405,7 @@ def self_test():
         wl = load_whitelist(d)
         hits = []
         for path in (bad, good):
-            h, _ = scan_file(path, path, wl)
+            h, _s, _lc = scan_file(path, path, wl)
             hits += h
         tags = [h[2] for h in hits]
         if not any(t == "空catch(吞异常)" for t in tags):
@@ -397,7 +433,7 @@ def self_test():
                 "  }\n"
                 "}\n"
             )
-        wh, ws = scan_file(wled, "Wled.java", wl)
+        wh, _ws, _wlc = scan_file(wled, "Wled.java", wl)
         if wh:
             print("self-test: 内置白名单（有意降级注释）未抑制: %s" % wh)
             return 2
@@ -405,13 +441,39 @@ def self_test():
         with open(os.path.join(d, DEGRADE_WL_FILE), "w", encoding="utf-8") as f:
             f.write("# 已定性有意降级\nGood.java\n")
         wl2 = load_whitelist(d)
-        h2, _ = scan_file(good, "Good.java", wl2)
+        h2, _s2, _lc2 = scan_file(good, "Good.java", wl2)
         # Good.java 有 rethrow 本就不报；改用 Wled 路径验证路径抑制
-        h3, _ = scan_file(wled, "Wled.java", wl2)
+        h3, _s3, _lc3 = scan_file(wled, "Wled.java", wl2)
         if h3:
             print("self-test: .degrade-whitelist 路径抑制未生效: %s" % h3)
             return 2
-        print("self-test: OK（空catch/仅日志/DEGRADE 可抓，rethrow 不误报，白名单抑制生效）")
+        # 白名单存活（反事实 GC）：存活行（抑制发现）不列，失效行（零命中）被识别
+        zed = os.path.join(d, "Zed.java")
+        with open(zed, "w", encoding="utf-8") as f:
+            f.write(
+                "class Zed {\n"
+                "  void m() {\n"
+                "    try { x(); }\n"
+                "    catch (Exception e) { log.warn(e); return null; }\n"
+                "  }\n"
+                "}\n"
+            )
+        with open(os.path.join(d, DEGRADE_WL_FILE), "w", encoding="utf-8") as f:
+            f.write("# 存活/失效各一行\nZed.java\nNoSuchPath\\.java\n")
+        wl3 = load_whitelist(d)
+        _hz, _sz, lc = scan_file(zed, "Zed.java", wl3)
+        if _hz:
+            print("self-test: Zed.java 应被白名单行抑制: %s" % _hz)
+            return 2
+        file_lines3 = [raw for (_rx, raw) in wl3 if raw is not None]
+        stale3 = [ln for ln in file_lines3 if lc.get(ln, 0) == 0]
+        if "Zed.java" in stale3:
+            print("self-test: 存活白名单行（Zed.java）被误判失效: %s" % stale3)
+            return 2
+        if "NoSuchPath\\.java" not in stale3:
+            print("self-test: 失效白名单行未被识别为失效: %s" % stale3)
+            return 2
+        print("self-test: OK（空catch/仅日志/DEGRADE 可抓，rethrow 不误报，白名单抑制生效，存活探针可分存活/失效行）")
         return 0
     finally:
         import shutil
@@ -432,10 +494,11 @@ def main():
     if not os.path.isdir(root):
         print("✗ 扫描根目录不存在: %s" % root)
         sys.exit(2)
-    ok, severity, message = run_checks(root, args.md, args.whitelist)
+    ok, severity, message, stale = run_checks(root, args.md, args.whitelist)
     if args.json:
         print(json.dumps({"status": "OK" if ok else "FAIL",
-                          "severity": severity, "message": message},
+                          "severity": severity, "message": message,
+                          "stale_whitelist": stale},
                          ensure_ascii=False))
     else:
         print(("✓ " if ok else "✗ ") + message)

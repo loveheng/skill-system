@@ -27,6 +27,9 @@ SELF_TEST=0
 MD_OUT=""
 ROOT_DIR=""
 WL_FILE=""
+STALE_N=0
+STALE=""
+STALE_NOTE=""
 GIT_ROOT=""
 GIT=1
 THRESHOLD=3
@@ -66,10 +69,16 @@ effective_whitelist() {
   return 0
 }
 
-collect_hits() {
-  # 在 $ROOT_DIR 下输出: relpath:line:content（已过滤排除目录与白名单）
-  local wl
-  wl=$(effective_whitelist || true)
+wl_lines() {
+  # 白名单文件行集（每行一个，注释/空行剔除，两端去空白）——逐行存活归因的数据源
+  local f
+  f=${WL_FILE:-${ROOT_DIR:-.}/.admission-whitelist}
+  [ -f "$f" ] || return 0
+  grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+collect_raw_hits() {
+  # 在 $ROOT_DIR 下输出: relpath:line:content（已过滤排除目录，未过白名单）
   grep -rnE \
     --include='*.java' --include='*.py' --include='*.sh' --include='*.ts' \
     --include='*.tsx' --include='*.js' --include='*.jsx' --include='*.go' \
@@ -83,7 +92,42 @@ collect_hits() {
     --exclude='admission-scan.sh' \
     "$PATTERN" . 2>/dev/null \
     | sed 's|^\./||' \
-    | { if [ -n "$wl" ]; then grep -vE "$wl" || true; else cat; fi; } || true
+    || true
+}
+
+collect_hits() {
+  # 在 $ROOT_DIR 下输出: relpath:line:content（已过滤排除目录与白名单）
+  local wl
+  wl=$(effective_whitelist || true)
+  { collect_raw_hits; } | { if [ -n "$wl" ]; then grep -vE "$wl" || true; else cat; fi; } || true
+}
+
+wl_liveness() {
+  # 白名单存活（反事实 GC）：逐文件行统计其「独占」抑制的 raw 命中数
+  # （命中该行、且不被其他文件行命中）；0 = 失效行（删它不会多报任何一条）
+  local f L L2 others n tmp RAW
+  f=${WL_FILE:-${ROOT_DIR:-.}/.admission-whitelist}
+  [ -f "$f" ] || return 0
+  tmp=$(mktemp) || return 0
+  wl_lines > "$tmp"
+  if [ ! -s "$tmp" ]; then rm -f "$tmp"; return 0; fi
+  RAW=$(cd "$ROOT_DIR" && collect_raw_hits)
+  while IFS= read -r L; do
+    [ -n "$L" ] || continue
+    others=""
+    while IFS= read -r L2; do
+      [ -n "$L2" ] || continue
+      if [ "$L2" = "$L" ]; then continue; fi
+      others="${others:+$others|}$L2"
+    done < "$tmp"
+    if [ -n "$others" ]; then
+      n=$(printf '%s\n' "$RAW" | grep -E "$L" 2>/dev/null | grep -vE "$others" 2>/dev/null | grep -c . || true)
+    else
+      n=$(printf '%s\n' "$RAW" | grep -E "$L" 2>/dev/null | grep -c . || true)
+    fi
+    printf '%s|%s\n' "$L" "${n:-0}"
+  done < "$tmp"
+  rm -f "$tmp"
 }
 
 git_density() {
@@ -111,6 +155,19 @@ run_checks() {
   HITS=$(cd "$ROOT_DIR" && collect_hits)
   COUNT=$(printf '%s\n' "$HITS" | grep -c . || true)
 
+  # 白名单存活（反事实 GC）：失效行不改退出码，仅报告（裁决归 ::audit 层）
+  LIVE_OUT=$(wl_liveness)
+  STALE=""; STALE_N=0
+  if [ -n "$LIVE_OUT" ]; then
+    STALE=$(printf '%s\n' "$LIVE_OUT" | awk -F'|' '$2+0==0 {print $1}')
+    STALE_N=$(printf '%s\n' "$STALE" | grep -c . || true)
+    [ -n "$STALE" ] || STALE_N=0
+  fi
+  STALE_NOTE=""
+  if [ "$STALE_N" -gt 0 ]; then
+    STALE_NOTE="；失效白名单 ${STALE_N} 行（当前未抑制任何发现，建议清理）"
+  fi
+
   DENSITY=""
   BREACH=""
   if [ "$COUNT" -gt 0 ]; then
@@ -125,16 +182,16 @@ run_checks() {
   BREACH_N=$(printf '%s\n' "$BREACH" | grep -c . || true)
 
   if [ "$COUNT" -eq 0 ]; then
-    MSG="未发现 PATCH 标记（根: $ROOT_DIR）"
+    MSG="未发现 PATCH 标记（根: $ROOT_DIR）${STALE_NOTE}"
     return 0
   fi
 
   if [ "$BREACH_N" -gt 0 ]; then
-    MSG="补丁密度达阈值: ${BREACH_N} 个文件在 ${WINDOW} 天内被改 >= ${THRESHOLD} 次且带 PATCH 标记，触发强制重构（根: $ROOT_DIR）"
+    MSG="补丁密度达阈值: ${BREACH_N} 个文件在 ${WINDOW} 天内被改 >= ${THRESHOLD} 次且带 PATCH 标记，触发强制重构（根: $ROOT_DIR）${STALE_NOTE}"
     REMEDY="按 solution-admission §1 重新评估该位置的结构性方案，重构后删除 PATCH 标记"
     SEVERITY=error
   else
-    MSG="发现 ${COUNT} 处 PATCH 标记（债已登记，未达重构阈值 ${THRESHOLD}；根: $ROOT_DIR）"
+    MSG="发现 ${COUNT} 处 PATCH 标记（债已登记，未达重构阈值 ${THRESHOLD}；根: $ROOT_DIR）${STALE_NOTE}"
     REMEDY="到期检查: 已达重构条件则重构并删标记，仍属有意权宜则保留标记"
     SEVERITY=warn
   fi
@@ -170,6 +227,16 @@ run_checks() {
           echo "| $(printf '%s' "$line" | cut -d: -f1-2) | $(printf '%s' "$line" | cut -d: -f3-) |"
         fi
       done
+      if [ "$STALE_N" -gt 0 ]; then
+        echo ""
+        echo "## 失效白名单（反事实：删此行不会多报任何发现，建议清理恢复监控）"
+        echo ""
+        echo '| 白名单行 | 当前抑制 |'
+        echo '|---|---|'
+        printf '%s\n' "$STALE" | while IFS= read -r wl; do
+          [ -n "$wl" ] && echo "| $wl | 0 |"
+        done
+      fi
       echo ""
       echo "> 处置口径见 solution-admission §5: 达阈值 → 强制重构；未达 → 保留标记，到期重评。"
     } > "$MD_OUT"
@@ -222,7 +289,15 @@ self_test() {
   run_checks || rc=$?
   if [ "$rc" -ne 0 ]; then echo "self-test: 无债场景未返回 exit 0（实际 $rc）"; return 2; fi
 
-  echo "self-test: OK（密度达阈值可抓、单次提交不误判、无标记不误报、白名单生效、无债 exit 0）"
+  # 白名单存活（反事实）：存活行（抑制标记）归因 1，失效行（零命中）归因 0
+  echo '// PATCH: 权宜实现，正解待重构' > "$TMP/src/Live.java"
+  printf 'Live\\.java\nDeadPath\\.java\n' > "$TMP/.admission-whitelist"
+  WL_FILE="$TMP/.admission-whitelist"
+  LIVE=$(wl_liveness)
+  printf '%s\n' "$LIVE" | grep -qF 'Live\.java|1' || { echo "self-test: 存活行归因错误: $LIVE"; return 2; }
+  printf '%s\n' "$LIVE" | grep -qF 'DeadPath\.java|0' || { echo "self-test: 失效行未识别: $LIVE"; return 2; }
+
+  echo "self-test: OK（密度达阈值可抓、单次提交不误判、无标记不误报、白名单生效、无债 exit 0、存活探针可分存活/失效行）"
 }
 
 rc=0
@@ -254,7 +329,7 @@ run_checks || rc=$?
 
 if [ "$rc" -eq 0 ]; then
   if [ "$JSON" -eq 1 ]; then
-    printf '{"status":"OK","severity":"info","message":"%s"}\n' "$MSG"
+    printf '{"status":"OK","severity":"info","message":"%s","stale_whitelist":%s}\n' "$MSG" "$STALE_N"
   else
     echo "OK: $MSG"
     if [ -n "$MD_OUT" ]; then echo "报告已写入 $MD_OUT"; fi
@@ -273,7 +348,7 @@ if [ "$rc" -eq 2 ]; then
 fi
 
 if [ "$JSON" -eq 1 ]; then
-  printf '{"status":"FAIL","severity":"%s","message":"%s","remedy":"%s"}\n' "$SEVERITY" "$MSG" "$REMEDY"
+  printf '{"status":"FAIL","severity":"%s","message":"%s","remedy":"%s","stale_whitelist":%s}\n' "$SEVERITY" "$MSG" "$REMEDY" "$STALE_N"
 else
   echo "FAIL[$SEVERITY]: $MSG"
   echo "[remedy] $REMEDY"

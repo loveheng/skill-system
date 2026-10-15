@@ -2,8 +2,8 @@
 dev-loop: memory
 format: v1
 epic: misc
-total-merged: 4
-last-merge: 2026-10-07
+total-merged: 5
+last-merge: 2026-10-11
 ---
 
 # misc
@@ -24,6 +24,8 @@ last-merge: 2026-10-07
 - [2026-10-07] devlog.sh change 强制验证配对上线：`--verify "<命令 → 结果>"` / `--no-verify "<原因>"` 二选一合同（缺一 FAIL、JSON 预检同拦、--json 裸跑契约顺带修复），自测扩至 18 项；[变更] 从此不允许裸奔（§2.4 验证账本的机械面），独立补验/复验仍走 verify 子命令。
 - [2026-10-07] dev-loop V3.7 减重：§5-§8 执行细则拆 REFERENCE.md 细则层（SKILL.md 251→217 行，摘要+指针、节号稳定外部引用不变；细则修改只改 REFERENCE）；外部评估采纳口径——配对机械化的源头条 + 热路径减法，「弱模型档位」「砍 description 预算」不做。
 - [2026-10-07] 冷启动演练（体系外执行者首次验证闭环）：全新子代理仅凭 dev-init 接入 /tmp/coldstart-drill/todo-cli 全绿（硬卡点 4/4、ctx-audit --init exit 0、panel 绑定卡可出）；9 卡点 12 建议——4 项即修（dev-init §0 空白板定义 / §1-5 无 docs 分支补句 / §1-3 样例指针改 goodshare / §2 audit 口径），余 7 项整改包 + scaffold 欠账 + skill-verify 语义通道入 misc 待办；副作用披露：演练测试曾覆盖 ~/.todo-cli.json 损失 1 条存量（根因已修，教训入 lessons）。
+- [2026-10-11] ctx-ratio 上线（docs/全局池）：总量%+RCR 双阈值+冷却锁+排错豁免+fail-open，触发接 §4 归并（触发方式扩为三）；数据源自适应 zcode/cc/proxy/stdin——zcode 定位走 cli db session.directory 精确匹配 + 尾部渐进窗兜底（开场目录与 system prompt 锚点均会说谎），usage 正则提取、峰值行取消息文本、total 取峰值防旁路小请求污染；panel 状态行 ctx: 字段；首跑即真实命中（86%｜RCR 8%）。v2 候选（proxy 缓存感知/devlog 文件重叠度/宿主 compact 建议）待排期。
+- [2026-10-15] 决策（ADR 轻量级防御演进）：白名单=反事实存活探针（可 GC）·规则=禁零触发 GC（不对称）；拒 PID 锁/自动 worktree，采 flock+mkdir 原子原语；593%=长会话陈旧累积，暴露 resident% 以事实替代恐慌。1–3 项（白名单探针/resident%/锁原语）本轮实施。
 
 ## 断点
-- [断点] 下一步：等待散修任务
+- [断点] 下一步：轻量级防御演进 1–3 项已落地；v2 候选（proxy 缓存感知/devlog 文件重叠度/宿主 compact 建议）待用户排期

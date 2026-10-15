@@ -93,11 +93,14 @@ def find_root(explicit):
 
 
 def walk_files(root):
+    self_real = os.path.realpath(__file__)  # 自排除：扫描器不扫自身（文档/金丝雀样本属自指误报）
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
         for fn in sorted(filenames):
             if "." in fn and fn.rsplit(".", 1)[-1] in SCAN_EXT:
-                yield os.path.join(dirpath, fn)
+                p = os.path.join(dirpath, fn)
+                if os.path.realpath(p) != self_real:
+                    yield p
 
 
 def is_app_source(rel):

@@ -28,7 +28,7 @@ panel —— dev-loop §6 面板数据源（只读不写；事实脚本出、判
 默认项目根: 当前目录（context/ 位于 <根>/context）
 
 数据档（裸跑 = 事实块；建议动作不由脚本产出——AI 按判读协议结合语境自产）:
-  裸跑            dev 事实块 ~5 行: 绑定/断点 ｜ 任务活动表 ｜ 计数(待决/待办/待归并) ｜ 并行行(多任务交错活跃时条件出现) ｜ 债面(U/D/P 粗计数+体检时效) → dev-loop ::help 数据源
+  裸跑            dev 事实块 ~5 行: 绑定/断点 ｜ 任务活动表 ｜ 计数(待决/待办/待归并) ｜ 并行行(多任务交错活跃时条件出现，附样板 worktree 建议命令——仅建议不执行) ｜ 债面(U/D/P 粗计数+体检时效) → dev-loop ::help 数据源
   --board         逐任务一行: <epic> ｜ 最后活动 <日期> ｜ 断点（▶=当前绑定；misc 标常驻；按最后活动降序；archive 不列）→ ::board 数据源
   --deep <epic>   单任务深挖: 断点/memory 行数/最后活动/devlog 尾 3 行/本节 todos+台账计数 → 追问时按需取数
   --debt          债面明细: UNCERTAIN/DEGRADE/PATCH 标记数与 top 文件 + 白名单行数 + 上次体检时效 → 债追问时按需取数
@@ -36,6 +36,7 @@ panel —— dev-loop §6 面板数据源（只读不写；事实脚本出、判
   --json          一行 JSON 契约结论（当前档位内容的压缩 message）
 
 数据口径: 最后活动 = git log 最近提交日期（context/ 未纳 git 显示 ?）；计数 = tail/grep 现实推导，零缓存。
+ctx 口径: 上下文利用率探测（同池 ctx-ratio --brief，fail-open n/a）：总量%=峰值输入侧/窗口上限，RCR=近窗估算/衰减层，常驻%=元系统常驻占用（仅展示不触发）——⚠ 命中仅展示，触发归并走 dev-loop §4。
 债面口径: git 仓内 git grep 标记行（排除 *.md 与系统仓工具池自匹配），非 git 仓 grep 兜底（排除 .md/构建目录）；粗计数不含白名单过滤与形状扫描——权威数字以 uscan/dscan/ascan --md 为准。
 定位: ::status（ctx-status）仍是单 epic 点查工具；本工具是 dev 域 ::help/::board 的数据源。
 
@@ -125,6 +126,16 @@ audit_stamp() { # audit 钩上次运行 → "MM-DD✓/MM-DD⚠/未体检"（读 
   printf '%s%s' "$(printf '%s' "$d" | cut -d- -f2-3)" "$mk"
 }
 
+ctx_brief() { # 上下文利用率紧凑 token（同池 ctx-ratio.py --brief；fail-open 任何异常都回 n/a）
+  local s out
+  s="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/ctx-ratio.py"
+  [ -f "$s" ] || s="$HOME/.agents/toolbox/scripts/ctx-ratio.py"
+  [ -f "$s" ] || { printf 'n/a'; return 0; }
+  command -v python3 >/dev/null 2>&1 || { printf 'n/a'; return 0; }
+  out=$(python3 "$s" --brief 2>/dev/null)
+  printf '%s' "${out:-n/a}"
+}
+
 debt_summary() { # 债面单行（scan_fact 第 5 行用），结果落全局 DEBT
   local nu nd np
   set -- $(mk_stat 'UNCERTAIN[[:space:]]*:'); nu=$1
@@ -206,6 +217,7 @@ scan_fact() {
   fi
   les=$(cnt_file "$ctx/lessons.md" '^- \[')
   debt_summary
+  DEBT="${DEBT} ｜ ctx: $(ctx_brief)"
   # 并行信号（零缓存，git 活动现场推导）：非 misc epic 中与最近活跃窗 ≤2 天的 ≥2 个 → 恢复须点名
   par=''; par_n=0; newest=0
   for dir in "$ctx"/epics/*/; do
@@ -231,7 +243,9 @@ scan_fact() {
     done
   fi
   PAR=''
-  [ "$par_n" -ge 2 ] && PAR="\n并行: ${par%・} 近期交错活跃（≤2 天窗）——恢复请点名任务，CURRENT 仅最近绑定"
+  if [ "$par_n" -ge 2 ]; then
+    PAR="\n并行: ${par%・} 近期交错活跃（≤2 天窗）——恢复请点名任务，CURRENT 仅最近绑定；代码写隔离建议: git worktree add ../$(basename "$ROOT")-${epic} -b ${epic}（仅建议不执行；worktree 的 context/ 是独立副本，记忆写入须回主仓防脑裂）"
+  fi
   MSG="绑定: ▶ ${epic}\n断点: ${bp}\n任务: ${tasks}｜ 计数: 待决 ${pc:-0} ｜ 待办 全局 ${tdg:-0}/域内 ${tdd} ｜ 待归并 devlog $((d1 + d2))/lessons ${les:-0}${PAR}\n${DEBT}"
   return 0
 }
@@ -376,6 +390,7 @@ EOF
   printf '%s' "$out" | grep -q '待决 2' || { echo "self-test: 待决计数错误: $out"; ok=0; }
   printf '%s' "$out" | grep -q '待办 全局 2/域内 2' || { echo "self-test: 待办计数错误: $out"; ok=0; }
   printf '%s' "$out" | grep -q '并行: demo・work' || { echo "self-test: 并行信号缺失: $out"; ok=0; }
+  printf '%s' "$out" | grep -q 'git worktree add' || { echo "self-test: 并行行缺 worktree 建议: $out"; ok=0; }
   # 用例 2b: 单活跃 epic → 并行行不出现（防常驻噪音）
   rm -rf "$c/context/epics/work"
   out=$(sh "$0" --root "$c" 2>&1)
@@ -383,6 +398,7 @@ EOF
   printf '%s' "$out" | grep -q '待归并 devlog 4/lessons 1' || { echo "self-test: 待归并计数错误: $out"; ok=0; }
   printf '%s' "$out" | grep -q '债: U1 D1 P1' || { echo "self-test: 债行缺失或粗计数错误: $out"; ok=0; }
   printf '%s' "$out" | grep -q '体检:' || { echo "self-test: 债行缺体检时效"; ok=0; }
+  printf '%s' "$out" | grep -q 'ctx: ' || { echo "self-test: 状态行缺 ctx 探测字段"; ok=0; }
   # 用例 3: --board
   out=$(sh "$0" --root "$c" --board 2>&1)
   printf '%s' "$out" | grep -qE '▶ demo ｜ 最后活动 (20[0-9]{2}-[0-9]{2}-[0-9]{2}|\?)' || { echo "self-test: board 绑定标记/日期错误: $out"; ok=0; }

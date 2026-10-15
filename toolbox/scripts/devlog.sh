@@ -36,7 +36,8 @@ devlog — dev-loop 记账单一入口（devlog 追加 / lessons 追加 / 断点
   note    <epic> <标签> <文本...>   追加  - [日期] [<标签>]: 文本        → 同上（决策 / SSOT 修正 / 环境坑…）
   lesson  <epic> <模块> <文本...>   追加  - [<模块>] 文本 (Ref: <epic>)  → context/lessons.md
   bp      <epic> <文本...>          刷新 context/epics/<epic>/memory.md 断点行
-                                    （单趟替换+重复去重；章节缺失则重建，替换后校验恒为 1 行）
+                                    （单趟替换+重复去重；章节缺失则重建，替换后校验恒为 1 行；
+                                    flock 可用时临界区持锁——锁点 <memory.md>.bp.lock，进程退出自动释放）
   count   <epic>                    devlog 尾部 20 行内未归并条目计数（阈值 5，达到应归并）
 
 全局选项:
@@ -125,9 +126,16 @@ append_dedupe() {
 
 # 断点刷新：单趟 awk 替换（首个匹配替换、其余去重）；无既有断点行则重建章节；
 # 结束后校验断点行恒为 1。EPIC/TEXT/ROOT 已就绪。
+# 并发：读改写临界区包 flock（锁点 <memory.md>.bp.lock，稳定空文件；进程退出自动释放、
+# 无陈旧态——ADR 轻量级防御 2026-10-15；flock 缺失（非 Linux）降级无锁，
+# 并行纪律「同 epic 禁双窗口同写」仍是第一道防线）。
 run_bp() {
   FILE="$ROOT/context/epics/$EPIC/memory.md"
   TMP="$FILE.bp.tmp"
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>>"$FILE.bp.lock" || die2 "断点锁点创建失败: $FILE.bp.lock"
+    flock -w 15 9 || die2 "断点锁获取失败（另一断点刷新持有超 15s——检查是否有挂起窗口）"
+  fi
   awk -v repl="- [断点] 下一步：$TEXT" '/^- \[断点\]/{if(!done){print repl;done=1};next}{print}' "$FILE" > "$TMP" \
     || die2 "awk 写临时文件失败"
   if grep -Fqx -- "- [断点] 下一步：$TEXT" "$TMP" >/dev/null 2>&1; then
@@ -194,6 +202,10 @@ self_test() {
   validate_text "重建丙"
   run_bp >/dev/null
   chk "bp 章节缺失重建" "$(grep -c '^- \[断点\]' "$_m")" "1"
+  # 8b 断点锁点：flock 可用时留稳定空文件（进程退出自动释放，不清理）
+  if command -v flock >/dev/null 2>&1; then
+    chk "断点锁点留痕" "$([ -f "$_m.bp.lock" ] && echo 有 || echo 无)" "有"
+  fi
   # 9 count
   _n=$(tail -n 20 "$D" | grep -c '^- \[')
   chk "count 计数（变更+验证+SSOT=3）" "$_n" "3"

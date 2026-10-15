@@ -391,7 +391,7 @@ def record_usage(name, scope, rc, ms, src):
         with LEDGER_FILE.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError:
-        pass
+        pass  # 有意降级：台账写入失败绝不阻断工具执行（fail-open 设计）
 
 
 def load_last_runs():
@@ -777,7 +777,7 @@ def load_param_values():
                 values[k] = v
             used.append(str(f))
         except OSError:
-            pass
+            pass  # 有意降级：单个 params 文件不可读则跳过，缺文件属常态
     return values, used
 
 
@@ -850,7 +850,7 @@ def cmd_suggest(args):
                                  capture_output=True, text=True, timeout=5)
             changed = [ln[3:].strip() for ln in (out.stdout or "").splitlines() if ln.strip()]
         except (OSError, subprocess.TimeoutExpired):
-            pass
+            pass  # 有意降级：git 不可用/超时则退化为按类别全量列示（docstring 已约定）
     entries = [e for e in collect() if not e["overridden"] and not e["problems"]]
     if not entries:
         print("(空) 工具池为空，无建议。")

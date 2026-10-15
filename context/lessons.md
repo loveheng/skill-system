@@ -17,3 +17,7 @@ last-merge: 2026-10-07
 ## toolbox
 
 校验池内既有脚本直接跑 `--self-test` 或显式 `--scope global`——`toolbox check` 传池内脚本路径会把脚本移动进 scope 对应池（scope 默认随 cwd 解析为 project，全局池副本消失）；登记新脚本一律显式传 `--scope`（2026-10-07 实测）。
+
+## 测试外生性
+
+[WHEN] 核心业务重构或让 AI 驱动测试修复时 → [DO] 锁定黄金基准与核心测试文件（如 `tests/core/`、`tests/golden/`）为只读契约，严禁执行者通过修改、放宽断言或删除用例使测试通过——验证判定权必须外生于执行者 → [VERIFY] `git diff --stat tests/core/` 变更为 0，且核心套件 Exit Code 为 0（2026-10-15 评估定调：Goodhart 效应，AI 擅长改宽断言、加 Mock、删用例让红灯变绿；自产自销的测试易成同义反复，100% 覆盖率测了个寂寞）。

@@ -26,6 +26,9 @@ SELF_TEST=0
 MD_OUT=""
 ROOT_DIR=""
 WL_FILE=""
+STALE_N=0
+STALE=""
+STALE_NOTE=""
 PATTERN='UNCERTAIN|TODO|FIXME|XXX|HACK|隐患|待确认|待验证|不确定|临时方案|权宜|注意[:：]'
 
 usage() {
@@ -59,9 +62,16 @@ effective_whitelist() {
   printf '%s' "$parts"
 }
 
-collect_hits() {
-  # 在 $ROOT_DIR 下输出: relpath:line:content（已过滤排除目录与白名单）
-  local wl
+wl_lines() {
+  # 白名单文件行集（每行一个，注释/空行剔除，两端去空白）——逐行存活归因的数据源
+  local f
+  f=${WL_FILE:-${ROOT_DIR:-.}/.uncertainty-whitelist}
+  [ -f "$f" ] || return 0
+  grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+collect_raw_hits() {
+  # 在 $ROOT_DIR 下输出: relpath:line:content（已过滤排除目录，未过白名单）
   grep -rnE \
     --include='*.java' --include='*.py' --include='*.sh' --include='*.ts' \
     --include='*.tsx' --include='*.js' --include='*.jsx' --include='*.go' \
@@ -72,9 +82,45 @@ collect_hits() {
     --exclude-dir='build' --exclude-dir='dist' --exclude-dir='out' \
     --exclude-dir='__pycache__' --exclude-dir='.venv' --exclude-dir='venv' \
     --exclude-dir='.idea' --exclude-dir='.trash' \
+    --exclude="$(basename "$0")" \
     "$PATTERN" . 2>/dev/null \
     | sed 's|^\./||' \
-    | { wl=$(effective_whitelist); [ -n "$wl" ] && grep -vE "$wl" || cat; } || true
+    || true
+}
+
+collect_hits() {
+  # 在 $ROOT_DIR 下输出: relpath:line:content（已过滤排除目录与白名单）
+  local wl
+  wl=$(effective_whitelist)
+  { collect_raw_hits; } | { [ -n "$wl" ] && grep -vE "$wl" || cat; } || true
+}
+
+wl_liveness() {
+  # 白名单存活（反事实 GC）：逐文件行统计其「独占」抑制的 raw 命中数
+  # （命中该行、且不被 内置+其他文件行 命中）；0 = 失效行（删它不会多报任何一条）
+  local f L L2 others n tmp RAW
+  f=${WL_FILE:-${ROOT_DIR:-.}/.uncertainty-whitelist}
+  [ -f "$f" ] || return 0
+  tmp=$(mktemp) || return 0
+  wl_lines > "$tmp"
+  if [ ! -s "$tmp" ]; then rm -f "$tmp"; return 0; fi
+  RAW=$(cd "$ROOT_DIR" && collect_raw_hits)
+  while IFS= read -r L; do
+    [ -n "$L" ] || continue
+    others=$(default_wl)
+    while IFS= read -r L2; do
+      [ -n "$L2" ] || continue
+      if [ "$L2" = "$L" ]; then continue; fi
+      others="${others:+$others|}$L2"
+    done < "$tmp"
+    if [ -n "$others" ]; then
+      n=$(printf '%s\n' "$RAW" | grep -E "$L" 2>/dev/null | grep -vE "$others" 2>/dev/null | grep -c . || true)
+    else
+      n=$(printf '%s\n' "$RAW" | grep -E "$L" 2>/dev/null | grep -c . || true)
+    fi
+    printf '%s|%s\n' "$L" "${n:-0}"
+  done < "$tmp"
+  rm -f "$tmp"
 }
 
 run_checks() {
@@ -83,12 +129,25 @@ run_checks() {
   HITS=$(cd "$ROOT_DIR" && collect_hits)
   COUNT=$(printf '%s\n' "$HITS" | grep -c . || true)
 
+  # 白名单存活（反事实 GC）：失效行不改退出码，仅报告（裁决归 ::audit 层）
+  LIVE_OUT=$(wl_liveness)
+  STALE=""; STALE_N=0
+  if [ -n "$LIVE_OUT" ]; then
+    STALE=$(printf '%s\n' "$LIVE_OUT" | awk -F'|' '$2+0==0 {print $1}')
+    STALE_N=$(printf '%s\n' "$STALE" | grep -c . || true)
+    [ -n "$STALE" ] || STALE_N=0
+  fi
+  STALE_NOTE=""
+  if [ "$STALE_N" -gt 0 ]; then
+    STALE_NOTE="；失效白名单 ${STALE_N} 行（当前未抑制任何发现，建议清理）"
+  fi
+
   if [ "$COUNT" -eq 0 ]; then
-    MSG="未发现不确定标记注释（根: $ROOT_DIR）"
+    MSG="未发现不确定标记注释（根: $ROOT_DIR）${STALE_NOTE}"
     return 0
   fi
 
-  MSG="发现 $COUNT 处不确定标记注释，建议人工评估（--md 可导出明细）"
+  MSG="发现 $COUNT 处不确定标记注释，建议人工评估（--md 可导出明细）${STALE_NOTE}"
 
   if [ -n "$MD_OUT" ]; then
     {
@@ -106,6 +165,16 @@ run_checks() {
         c=$(printf '%s' "$line" | cut -d: -f3-)
         echo "| $loc | $c |"
       done
+      if [ "$STALE_N" -gt 0 ]; then
+        echo ""
+        echo "## 失效白名单（反事实：删此行不会多报任何发现，建议清理恢复监控）"
+        echo ""
+        echo '| 白名单行 | 当前抑制 |'
+        echo '|---|---|'
+        printf '%s\n' "$STALE" | while IFS= read -r wl; do
+          [ -n "$wl" ] && echo "| $wl | 0 |"
+        done
+      fi
       echo ""
       echo "> 评估建议: 高危项（影响正确性/数据一致性）转项目 todos 风险类；"
       echo "低危项（已知降级、有版本规划）保留注释即可。"
@@ -132,7 +201,12 @@ self_test() {
   WL_FILE="$TMP/.uncertainty-whitelist"
   HITS3=$(cd "$TMP" && collect_hits)
   printf '%s' "$HITS3" | grep -q 'C.java' && { echo "self-test: 自定义白名单未生效"; return 2; }
-  echo "self-test: OK（坏样本可抓，内置/自定义白名单均不误报）"
+  # 白名单存活（反事实）：存活行（抑制 C.java）归因 1，失效行（零命中）归因 0
+  echo 'NoSuchMarkerXYZ' >> "$TMP/.uncertainty-whitelist"
+  LIVE=$(wl_liveness)
+  printf '%s\n' "$LIVE" | grep -qF '内部约定|1' || { echo "self-test: 存活行归因错误: $LIVE"; return 2; }
+  printf '%s\n' "$LIVE" | grep -qF 'NoSuchMarkerXYZ|0' || { echo "self-test: 失效行未识别: $LIVE"; return 2; }
+  echo "self-test: OK（坏样本可抓，内置/自定义白名单均不误报，存活探针可分存活/失效行）"
 }
 
 while [ $# -gt 0 ]; do
@@ -155,13 +229,13 @@ if [ "$SELF_TEST" -eq 1 ]; then
 fi
 
 if run_checks; then
-  [ "$JSON" -eq 1 ] && printf '{"status":"OK","severity":"info","message":"%s"}\n' "$MSG"
+  [ "$JSON" -eq 1 ] && printf '{"status":"OK","severity":"info","message":"%s","stale_whitelist":%s}\n' "$MSG" "$STALE_N"
   [ "$JSON" -eq 0 ] && echo "OK: $MSG"
   [ -n "$MD_OUT" ] && [ "$JSON" -eq 0 ] && echo "报告已写入 $MD_OUT"
   exit 0
 fi
 if [ "$JSON" -eq 1 ]; then
-  printf '{"status":"FAIL","severity":"warn","message":"%s"}\n' "$MSG"
+  printf '{"status":"FAIL","severity":"warn","message":"%s","stale_whitelist":%s}\n' "$MSG" "$STALE_N"
 else
   echo "FAIL: $MSG"
   [ -n "$MD_OUT" ] && echo "报告已写入 $MD_OUT"
