@@ -29,6 +29,8 @@ project-scaffold —— 项目 skill 体系骨架初始化（幂等）
   .gitignore                          追加 context/CURRENT（个人指针，不入库）
   .uncertainty-whitelist              仅头注释，禁预置条目
   .degrade-whitelist                  仅头注释，禁预置条目
+  .agent-patch.json                   safe-patcher 项目继承骨架：指纹探测 languages，
+                                      hooks 留空待人工填（机制见全局 safe-patcher --help）
   .agents/skills/                     目录 + .gitkeep（空目录不入 git）
   .agents/skills/<repo>-docs/SKILL.md 仅当存在 docs/ 时创建（只填数据位，规范指针回 docs-spec）；
   无 docs/ 不生成空骨架——初始域结构按项目类型人工生成（dev-init §1 第 5 步）
@@ -58,9 +60,13 @@ exec_self_test() {
   [ "$r" -eq 0 ] || { echo "fail: 骨架生成退出码 $r"; rm -rf "$T"; return 1; }
   for f in context/CURRENT context/epics/misc/memory.md context/epics/misc/devlog.md \
            context/lessons.md context/decisions.md context/todos.md context/done.md \
-           .uncertainty-whitelist .degrade-whitelist .agents/skills/.gitkeep; do
+           .uncertainty-whitelist .degrade-whitelist .agent-patch.json \
+           .agents/skills/.gitkeep; do
     [ -f "$T/$f" ] || { echo "fail: 缺产出 $f"; rm -rf "$T"; return 1; }
   done
+  grep -q '"hooks": *\[\]' "$T/.agent-patch.json" || { echo 'fail: .agent-patch.json 缺空 hooks'; rm -rf "$T"; return 1; }
+  python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$T/.agent-patch.json" 2>/dev/null \
+    || { echo 'fail: .agent-patch.json 非法 JSON'; rm -rf "$T"; return 1; }
   grep -q '^epic: misc$' "$T/context/CURRENT" || { echo 'fail: CURRENT 内容不符'; rm -rf "$T"; return 1; }
   grep -qxF 'context/CURRENT' "$T/.gitignore" || { echo 'fail: .gitignore 未追加 CURRENT'; rm -rf "$T"; return 1; }
   r2=0
@@ -217,6 +223,43 @@ mk '.degrade-whitelist' <<'EOF'
 # 机制见 ai-sideeffect-guard §3：只登记定性为「有意降级」的路径；
 # 对应路径修复后须删行恢复监控。禁预置条目——首跑基线评估后再逐条登记。
 EOF
+
+# safe-patcher 项目 hook 骨架：按指纹文件探测技术栈写入 languages；hooks 留空待人工填
+# （机制见全局 safe-patcher --help：写入前在内置语法预检之后执行 hooks 专属校验）
+ap="$ROOT/.agent-patch.json"
+if [ -f "$ap" ]; then
+  SKIPPED=$((SKIPPED + 1)); echo '  skip  .agent-patch.json（已存在，不覆盖）'
+elif [ "$DRY" -eq 1 ]; then
+  echo '  [dry-run] 创建 .agent-patch.json'
+  CREATED=$((CREATED + 1))
+else
+  langs=""
+  for pair in 'python:pyproject.toml setup.py requirements.txt Pipfile' \
+              'typescript:tsconfig.json' \
+              'javascript:package.json' \
+              'go:go.mod' \
+              'rust:Cargo.toml' \
+              'java:pom.xml build.gradle build.gradle.kts'; do
+    lang=${pair%%:*}
+    for marker in ${pair#*:}; do
+      if [ -e "$ROOT/$marker" ]; then
+        langs="$langs,\"$lang\""
+        break
+      fi
+    done
+  done
+  [ -n "$langs" ] && langs=${langs#,} || langs='"generic"'
+  mkdir -p "$ROOT"
+  cat > "$ap" <<EOF
+{
+  "_comment": "safe-patcher 项目继承配置（全局脚本写盘前执行 hooks 校验）。languages 由脚手架按指纹探测，仅供 AI 参考技术栈；hooks 每项 {match: 正则(匹配仓库相对路径,空=全部), run: 命令({file} 占位), timeout: 秒(默认60)}，任一失败即拒绝写入。禁预置校验命令——先确认本仓工具链可用再填。",
+  "languages": [$langs],
+  "hooks": []
+}
+EOF
+  echo '  create .agent-patch.json'
+  CREATED=$((CREATED + 1))
+fi
 
 gi="$ROOT/.gitignore"
 if [ -f "$gi" ] && grep -qxF 'context/CURRENT' "$gi"; then

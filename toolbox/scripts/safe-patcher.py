@@ -8,6 +8,9 @@
   2) 语法预检：写入前按扩展名做轻量解析（不跑编译器/类型检查）
   3) 原子写入：.bak 备份 + 同目录临时文件 + os.replace 原子替换
   4) 自动回滚：写失败恢复备份，成功才删备份
+项目继承（全局为骨，项目为肉）：项目根存在 .agent-patch.json 时，在内置语法预检
+之后执行其中的项目专属校验命令（hooks: [{match, run, timeout}]，{file} 占位），
+任一失败即拒绝写入。骨架由 project-scaffold 按技术栈生成。
 
 语法预检覆盖（优雅降级——未适配后缀直接放行，只靠原子性兜底）：
   .py ast.parse ｜ .json json.loads ｜ .toml tomllib(3.11+) ｜ .yaml/.yml pyyaml(可选)
@@ -36,6 +39,7 @@ import argparse
 import ast
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -149,6 +153,61 @@ def atomic_write(target: Path, new_content: str) -> None:
         raise Fault(f"写入失败已回滚: {e}")
 
 
+# ---------- 项目 Hook（继承：全局为骨，项目为肉） ----------
+
+HOOK_FILE = ".agent-patch.json"  # 项目根下的 Hook 配置，由 project-scaffold 生成骨架
+
+
+def load_hooks(ws: Path) -> list:
+    cfg = ws / HOOK_FILE
+    if not cfg.exists():
+        return []
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+        hooks = data.get("hooks", [])
+        if not isinstance(hooks, list):
+            raise ValueError("hooks 须为数组")
+        return hooks
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        raise Fault(f"{HOOK_FILE} 解析失败: {e}")
+
+
+def run_project_hooks(ws: Path, target: Path, content: str) -> None:
+    """写盘前执行项目专属校验；任一 hook 失败即拒绝写入。
+
+    {file} 指向新内容的预写临时副本（同目录、同名后缀，跑完即删）——
+    否则 hook 只能读到磁盘上的旧内容，校验形同虚设。
+    """
+    hooks = load_hooks(ws)
+    if not hooks:
+        return
+    tmp_fd, tmp_name = tempfile.mkstemp(dir=str(target.parent),
+                                        prefix="." + target.name + ".hookcheck.",
+                                        suffix=target.suffix)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        for i, h in enumerate(hooks):
+            if not isinstance(h, dict) or "run" not in h:
+                raise Fault(f"{HOOK_FILE} hooks[{i}] 缺 run 字段")
+            pat = h.get("match", "")
+            if pat and not re.search(pat, str(target.relative_to(ws))):
+                continue
+            cmd = h["run"].replace("{file}", str(tmp))
+            timeout = int(h.get("timeout", 60))
+            try:
+                r = subprocess.run(cmd, shell=True, cwd=str(ws), text=True,
+                                   capture_output=True, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                raise Fault(f"项目 hook[{i}] 超时(>{timeout}s): {cmd}")
+            if r.returncode != 0:
+                detail = (r.stderr or r.stdout).strip()[:300]
+                raise Rejected(f"项目 hook[{i}] 未通过: {cmd}\n{detail}")
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 # ---------- 动作 ----------
 
 def do_patch(args, ws: Path) -> str:
@@ -172,6 +231,7 @@ def do_patch(args, ws: Path) -> str:
 
     new_content = original.replace(search, replace, 1)
     syntax_check(target, new_content)
+    run_project_hooks(ws, target, new_content)
     atomic_write(target, new_content)
     delta = new_content.count("\n") - original.count("\n")
     return f"OK 已写入 {args.file} (行差 {delta:+d})"
@@ -190,6 +250,7 @@ def do_write(args, ws: Path) -> str:
     else:
         read_text(target)  # 存在则先过 UTF-8 检查
     syntax_check(target, new_content)
+    run_project_hooks(ws, target, new_content)
     if not target.exists():
         tmp_fd, tmp_name = tempfile.mkstemp(dir=str(target.parent),
                                             prefix="." + target.name + ".", suffix=".tmp")
@@ -328,11 +389,40 @@ def self_test() -> int:
         except Rejected:
             pass
 
+        # 7) 项目 hook：通过的 hook 放行，失败的 hook 拦截，match 不命中跳过
+        (tmp / ".agent-patch.json").write_text(json.dumps({
+            "hooks": [
+                {"match": r"\.txt$", "run": "exit 0"},
+                {"match": r"\.txt$", "run": "grep -q x {file}"},
+                {"match": r"\.never$", "run": "exit 1"},
+            ]
+        }), encoding="utf-8")
+        a.file = "dup.txt"; a.search = "x = 1\nx = 1"; a.replace = "x = 1\nx = 9"
+        try:
+            do_patch(a, tmp)  # hook[0] 放行、hook[1] grep 到 x=1 通过、hook[2] 不命中
+        except Rejected as e:
+            failures.append(f"通过的 hook 被误杀: {e}")
+        a.search = "x = 1\nx = 9"; a.replace = "a = 1\nw = 4"  # 改后内容不含 x → hook[1] 应失败
+        try:
+            do_patch(a, tmp)
+            failures.append("失败 hook 未拦截写入")
+        except Rejected:
+            pass
+
+        # 8) hook 配置损坏应报自身故障（上一用例已被拦，文件仍含 x = 1）
+        (tmp / ".agent-patch.json").write_text("{bad json", encoding="utf-8")
+        a.search = "x = 1"
+        try:
+            do_patch(a, tmp)
+            failures.append("损坏的 hook 配置未被识别")
+        except Fault:
+            pass
+
         if failures:
             for f in failures:
                 print(f"self-test FAIL: {f}")
             return 1
-        print("self-test: 6/6 通过（好补丁放行、坏补丁/多义/未找到/越界/敏感文件均拦截）")
+        print("self-test: 8/8 通过（好补丁/hook 放行；坏补丁/多义/未找到/越界/敏感文件/失败hook/坏hook配置均拦截）")
         return 0
     finally:
         _sh.rmtree(tmp, ignore_errors=True)
