@@ -83,6 +83,7 @@ context/                      ← 提交 git（CURRENT 除外）
 - **自动重构**：绑定 epic devlog 或 lessons 任一 ≥5 条，或 `ctx-ratio` 命中且 devlog 非空 → 本轮末尾自动执行 §4 归并 + `ctx-ratio --mark-merged`；排错中豁免只提示。附注：⚙️ [自动重构完成]…建议 Cmd+R 重置窗口。
 - **开场环境检查**：toolbox 在场先 `toolbox run-hooks bootstrap --quiet`；非 0 仅附一行 ⚠，严禁阻塞恢复。
 - **写入纪律**：进度事实只追加 devlog；memory 正文仅 §4 归并 / `::remember` / SSOT 修正 三通道；同一文件同一轮只用一种编辑工具。
+- **代理写入**：结构性修改（函数/类/接口级增删改）、配置与数据文件（.json/.yaml/.toml/.sh 等）一律经 `toolbox run safe-patcher patch/write` 落盘（唯一性匹配+语法预检+项目 hook+原子写入，失败零写入并按报错自纠错后重试）；直接 edit_file 仅限单行微调/纯文案/注释/骨架文件（context/、白名单等）与 safe-patcher 报错后的定向修正。
 
 ## 4. 重构与归纳
 
