@@ -24,20 +24,20 @@ description: 编码会话交互 SOP 底座（回复格式/日志规约/全局护
 
 ```
 context/                      ← 提交 git（CURRENT 除外）
-├── CURRENT                   ← 本窗口绑定指针（gitignore；日常默认 epic: misc）
+├── CURRENT                   ← 本窗口绑定指针（gitignore；日常默认 epic: misc；临时绑定态第二行 `base: <原绑定>`，--restore 恢复后清除）
 ├── epics/<名>/{memory.md, devlog.md, todos.md}
 │                             ← memory=长期记忆 SSOT（决策+断点，恢复只读它）
 │                             ← devlog=过程日志追加区（≥5 自动归并）；todos 归 memo-collector §0
 ├── epics/misc/               ← 常驻杂项 epic（散修挂靠）
-├── archive/                  ← 已完结 epic（memory ≤10 行）
+├── archive/                  ← 真退役功能（人工确认后移入；维护态 epic 留在 epics/ 不搬）
 ├── todos.md / done.md        ← 全局备忘台账（格式归 memo-collector §0）
 ├── pending-confirm.md        ← 多决策点确认台账（§2；非空时大动作冻结）
 ├── lessons.md                ← 双区：正文=避坑规则 SSOT，底部=教训流水
 └── decisions.md              ← 决策洞察档案（::adr 写入；AI 只写不读）
 ```
 
-**头部 YAML**（仅创建与 ::merge 时写入/更新，追加轮严禁触碰，不含 pending 计数）：
-`dev-loop: memory|devlog|lessons|decisions` ｜ `format: v1` ｜ `epic: <名|global>` ｜ `total-merged: <n>` ｜ `last-merge: <日期|none>`
+**头部 YAML**（memory 头部创建/::merge/devlog close-reopen 三通道写；devlog 头部创建/::merge/devlog clear 写；追加轮严禁触碰，不含 pending 计数）：
+`dev-loop: memory|devlog|lessons|decisions` ｜ `format: v1` ｜ `epic: <名|global>` ｜ `total-merged: <n>` ｜ `last-merge: <日期|none>` ｜ `state: maintenance`（仅 memory 头部可选，close 写入/reopen 清除）
 
 ## 1. 动态输出策略
 
@@ -87,7 +87,7 @@ context/                      ← 提交 git（CURRENT 除外）
 
 ## 4. 重构与归纳
 
-触发三（§3 自动阈值 / `::merge` / ctx-ratio 命中），同一套双文件压缩：① devlog 提炼进 memory.md 正文并清空追加区，两文件头部同步（total-merged+1、last-merge），`## 断点` 原样保留，**[SSOT 修正] 最高归纳优先级、严禁新旧并存**；② lessons.md 底部流水去重归纳进正文并清空；③ 极简回复一行（格式、git 冲突面、软上限、事故回滚纪律=REFERENCE §4）。
+触发三（§3 自动阈值 / `::merge` / ctx-ratio 命中），同一套双文件压缩：① **先归档决策过程**——将 devlog 中有留档价值的决策/权衡条目提炼进挂载底子文档的「决策日志」专节（epic 挂载时；格式=REFERENCE §4）；② devlog 提炼进 memory.md 正文并清空追加区（对已入文档决策日志的条目只留一行 `Ref:` 指针，严禁整条重抄——去重契约=REFERENCE §4），两文件头部同步（total-merged+1、last-merge），`## 断点` 原样保留，**[SSOT 修正] 最高归纳优先级、严禁新旧并存**；③ lessons.md 底部流水去重归纳进正文并清空；④ 极简回复一行（格式、git 冲突面、软上限、事故回滚纪律=REFERENCE §4）。
 
 ## 5. 实测闭环验证 (1 分钟，dev-init 接入时跑一次)
 
@@ -103,7 +103,7 @@ context/                      ← 提交 git（CURRENT 除外）
 
 ## 8. epic 收尾 (Closure)
 
-**`::done`**（misc 不适用）：§7 审计强制前置（⚠ 中止先修）→ 收敛复盘（升舱 L2→L3，附一行收敛度量）→ **标记强制结算**（本 epic 的 UNCERTAIN/DEGRADE 逐条清零三选一：补实证删标/升级 ADR/转 `(风险)` 待办——**逾期未处置标记是唯一阻断项**）→ 待办清零（memo-collector §4）→ memory 提炼 ≤10 行、移 archive/、CURRENT → none。**流程全文 = REFERENCE.md §8（唯一事实源）**。**收尾汇总卡必出**（标记/白名单/Hypothesis 实数，全零也出卡，以扫描实数为准）：
+**`::done`**（misc 不适用）：§7 审计强制前置（⚠ 中止先修）→ **决策过程归档**（devlog 决策/权衡条目写进挂载底子文档「决策日志」专节，同 §4 ①）→ 收敛复盘（升舱 L2→L3，附一行收敛度量）→ **标记强制结算**（本 epic 的 UNCERTAIN/DEGRADE 逐条清零三选一：补实证删标/升级 ADR/转 `(风险)` 待办——**逾期未处置标记是唯一阻断项**）→ 待办清零（memo-collector §4）→ memory 提炼 ≤10 行 → **维护态收尾**：`toolbox run devlog close <名> <完结说明>`（memory 头部 `state: maintenance` + 断点完结 + CURRENT → none，**目录不搬**，archive 仅真退役人工移入；重开 `devlog reopen`）。**流程全文 = REFERENCE.md §8（唯一事实源）**。**收尾汇总卡必出**（标记/白名单/Hypothesis 实数，全零也出卡，以扫描实数为准）：
 
 ```
 📋 结算：<epic名> ｜ 标记 清零 ✓（实证删 N / ADR M / 转办 K）｜ 白名单 W 处 ｜ [Hypothesis] H 条
