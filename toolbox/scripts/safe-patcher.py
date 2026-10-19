@@ -10,7 +10,11 @@
   4) 自动回滚：写失败恢复备份，成功才删备份
 项目继承（全局为骨，项目为肉）：项目根存在 .agent-patch.json 时，在内置语法预检
 之后执行其中的项目专属校验命令（hooks: [{match, run, timeout}]，{file} 占位），
-任一失败即拒绝写入。骨架由 project-scaffold 按技术栈生成。
+正常执行但未通过仍拒绝写入（hook 判定权）；分流策略：hook 基础设施故障（配置损坏/缺 run/超时/命令
+不可执行/执行异常）降级为 ⚠ 警告并放行，不阻塞写路径（fail-open）；内置语法检查器超时/
+意外异常则硬阻断 SYNTAX_CHECK_TIMEOUT（fail-closed，内容完整性保护）。降级/阻断仅随消息输出
+⚠ 警告（会话内自纠），不落盘留档——外层 compile/lint 才是权威闸门。语法预检与 hook 仅对
+代码文件（CODE_EXTS）生效，其他文件（md/骨架/文案）直写不拦。骨架由 project-scaffold 按技术栈生成。
 
 语法预检覆盖（优雅降级——未适配后缀直接放行，只靠原子性兜底）：
   .py ast.parse ｜ .json json.loads ｜ .toml tomllib(3.11+) ｜ .yaml/.yml pyyaml(可选)
@@ -22,7 +26,7 @@
   safe-patcher write <file> [--content-file <f> | stdin] [--ws <目录>] [--json]  # 全量覆盖,<=200 行
   safe-patcher verify <file> [--ws <目录>] [--json]                              # 仅语法预检
 裸跑执行任务本体；--json 输出一行契约结论（{"status":"OK|FAIL",...}）。
-退出码: 0=成功 1=拒绝写入(校验未过) 2=自身故障
+退出码: 0=成功 1=拒绝写入(校验未过) 2=自身故障(含 SYNTAX_CHECK_TIMEOUT fail-closed 阻断)
 
 toolbox-script
 format: v1
@@ -49,6 +53,16 @@ from pathlib import Path
 MAX_OVERWRITE_LINES = 200  # write 子命令全量覆盖的行数上限，大文件强制走 patch
 
 PROTECTED_PARTS = {".git", ".env", ".ssh", "node_modules", "id_rsa", "credentials.json"}
+
+# 拦截面：仅代码文件做语法预检与项目 hook（md/骨架/文案等非代码文件直写不拦）
+CODE_EXTS = {".py", ".json", ".toml", ".yaml", ".yml", ".sh", ".bash", ".js", ".mjs"}
+
+# fail-open 告警池：基础设施故障降级放行时收集，随 OK 消息输出
+WARNINGS = []
+
+
+def warn(msg: str) -> None:
+    WARNINGS.append(msg)
 
 try:
     import tomllib
@@ -114,7 +128,10 @@ def syntax_check(path: Path, content: str) -> None:
             import importlib.util
             spec = importlib.util.find_spec("yaml")
             if spec:
-                importlib.import_module("yaml").safe_load(content)
+                try:
+                    importlib.import_module("yaml").safe_load(content)
+                except Exception as e:  # YAMLError 非 ValueError 子类，统一转语法错误
+                    raise SyntaxError(str(e))
         elif ext in (".sh", ".bash") and shutil.which("bash"):
             r = subprocess.run(["bash", "-n"], input=content, text=True,
                                capture_output=True, timeout=10)
@@ -130,7 +147,12 @@ def syntax_check(path: Path, content: str) -> None:
     except (json.JSONDecodeError, ValueError) as e:
         raise Rejected(f"语法预检失败({ext}): {str(e)[:300]}")
     except subprocess.TimeoutExpired:
-        raise Fault(f"语法检查器超时: {ext}")
+        # fail-closed（内容完整性保护）：解析器超时/畸形大文件不得落盘
+        raise Fault(f"SYNTAX_CHECK_TIMEOUT: 语法检查器超时({ext})——fail-closed 阻断，"
+                    f"核实文件体量后重试或拆分编辑")
+    except Exception as e:
+        # fail-closed：判断不了 ≠ 放行
+        raise Fault(f"SYNTAX_CHECKER_FATAL ({ext}): {str(e)[:120]}")
 
 
 # ---------- 原子写入 ----------
@@ -173,12 +195,21 @@ def load_hooks(ws: Path) -> list:
 
 
 def run_project_hooks(ws: Path, target: Path, content: str) -> None:
-    """写盘前执行项目专属校验；任一 hook 失败即拒绝写入。
+    """写盘前执行项目专属校验（仅代码文件）。正常执行但未通过 → Rejected；
+    fail-open：hook 基础设施故障（配置损坏/缺 run/超时/命令不可执行 127/执行异常）
+    降级 ⚠ 放行，不阻塞写路径——判断权在 hook 的退出码，故障权不在。
 
     {file} 指向新内容的预写临时副本（同目录、同名后缀，跑完即删）——
     否则 hook 只能读到磁盘上的旧内容，校验形同虚设。
     """
-    hooks = load_hooks(ws)
+    if target.suffix.lower() not in CODE_EXTS:
+        return  # 非代码文件不跑 hook（语法预检同口径），直写
+    rel = str(target.relative_to(ws))
+    try:
+        hooks = load_hooks(ws)
+    except Fault as e:
+        warn(f"fail-open 跳过项目 hook: {e}")
+        return
     if not hooks:
         return
     tmp_fd, tmp_name = tempfile.mkstemp(dir=str(target.parent),
@@ -190,17 +221,26 @@ def run_project_hooks(ws: Path, target: Path, content: str) -> None:
             f.write(content)
         for i, h in enumerate(hooks):
             if not isinstance(h, dict) or "run" not in h:
-                raise Fault(f"{HOOK_FILE} hooks[{i}] 缺 run 字段")
+                warn(f"fail-open 跳过项目 hook[{i}]: 缺 run 字段")
+                continue
             pat = h.get("match", "")
-            if pat and not re.search(pat, str(target.relative_to(ws))):
+            if pat and not re.search(pat, rel):
                 continue
             cmd = h["run"].replace("{file}", str(tmp))
-            timeout = int(h.get("timeout", 60))
             try:
+                timeout = int(h.get("timeout", 60))
                 r = subprocess.run(cmd, shell=True, cwd=str(ws), text=True,
                                    capture_output=True, timeout=timeout)
             except subprocess.TimeoutExpired:
-                raise Fault(f"项目 hook[{i}] 超时(>{timeout}s): {cmd}")
+                warn(f"fail-open 跳过项目 hook[{i}] 超时: {cmd}")
+                continue
+            except Exception as e:
+                warn(f"fail-open 跳过项目 hook[{i}] 执行故障: {str(e)[:120]}")
+                continue
+            if r.returncode == 127:
+                # shell 无法执行命令（配置坏）= 基础设施故障；其余非 0 = hook 判定不通过
+                warn(f"fail-open 跳过项目 hook[{i}] 命令不可执行(127): {cmd}")
+                continue
             if r.returncode != 0:
                 detail = (r.stderr or r.stdout).strip()[:300]
                 raise Rejected(f"项目 hook[{i}] 未通过: {cmd}\n{detail}")
@@ -311,6 +351,8 @@ def main() -> int:
         if not ws.exists():
             raise Fault(f"工作区不存在: {args.ws}")
         msg = {"patch": do_patch, "write": do_write, "verify": do_verify}[args.cmd](args, ws)
+        if WARNINGS:
+            msg += "\n⚠ " + "\n⚠ ".join(WARNINGS)
         if as_json:
             print(_contract("OK", "info", msg))
         else:
@@ -358,9 +400,9 @@ def self_test() -> int:
             pass
 
         # 3) 多义匹配应被拦
-        multi = tmp / "dup.txt"
+        multi = tmp / "dup.py"
         multi.write_text("x = 1\nx = 1\n", encoding="utf-8")
-        a.file = "dup.txt"; a.search = "x = 1"; a.replace = "y = 2"
+        a.file = "dup.py"; a.search = "x = 1"; a.replace = "y = 2"
         try:
             do_patch(a, tmp)
             failures.append("多义匹配未被拦截")
@@ -392,12 +434,12 @@ def self_test() -> int:
         # 7) 项目 hook：通过的 hook 放行，失败的 hook 拦截，match 不命中跳过
         (tmp / ".agent-patch.json").write_text(json.dumps({
             "hooks": [
-                {"match": r"\.txt$", "run": "exit 0"},
-                {"match": r"\.txt$", "run": "grep -q x {file}"},
+                {"match": r"\.py$", "run": "exit 0"},
+                {"match": r"\.py$", "run": "grep -q x {file}"},
                 {"match": r"\.never$", "run": "exit 1"},
             ]
         }), encoding="utf-8")
-        a.file = "dup.txt"; a.search = "x = 1\nx = 1"; a.replace = "x = 1\nx = 9"
+        a.file = "dup.py"; a.search = "x = 1\nx = 1"; a.replace = "x = 1\nx = 9"
         try:
             do_patch(a, tmp)  # hook[0] 放行、hook[1] grep 到 x=1 通过、hook[2] 不命中
         except Rejected as e:
@@ -409,20 +451,65 @@ def self_test() -> int:
         except Rejected:
             pass
 
-        # 8) hook 配置损坏应报自身故障（上一用例已被拦，文件仍含 x = 1）
+        # 8) hook 配置损坏应 fail-open：降级放行 + ⚠ 警告（上一用例已被拦，文件仍含 x = 1）
         (tmp / ".agent-patch.json").write_text("{bad json", encoding="utf-8")
         a.search = "x = 1"
+        WARNINGS.clear()
+        try:
+            r = do_patch(a, tmp)
+            if "OK" not in r or not WARNINGS:
+                failures.append(f"坏 hook 配置未 fail-open 放行: r={r} warnings={WARNINGS}")
+        except Exception as e:
+            failures.append(f"坏 hook 配置仍阻塞写入: {e}")
+
+        # 9) 非代码文件不跑 hook：配置必失败的 hook，md 直写应放行
+        (tmp / ".agent-patch.json").write_text(json.dumps(
+            {"hooks": [{"run": "exit 1"}]}
+        ), encoding="utf-8")
+        md = tmp / "note.md"
+        md.write_text("# n\n", encoding="utf-8")
+        a.file = "note.md"; a.search = "# n"; a.replace = "# n2"
+        try:
+            do_patch(a, tmp)  # hook 对非代码文件不生效
+        except Rejected as e:
+            failures.append(f"非代码文件被 hook 误拦: {e}")
+
+        # 10) hook 命令不可执行(127) 应 fail-open：放行（⚠ 会话内自纠）
+        (tmp / ".agent-patch.json").write_text(json.dumps(
+            {"hooks": [{"match": r"\.py$", "run": "definitely_not_a_cmd_xyz"}]}
+        ), encoding="utf-8")
+        a.file = "mod.py"; a.search = "return a - b"; a.replace = "return a * b"
+        try:
+            r = do_patch(a, tmp)
+            if "OK" not in r:
+                failures.append(f"127 hook 未 fail-open 放行: {r}")
+        except Exception as e:
+            failures.append(f"127 hook 仍阻塞写入: {e}")
+
+        # 11) 语法器超时应 fail-closed：阻断 + 文件不变
+        shf = tmp / "t.sh"
+        shf.write_text("echo ok\n", encoding="utf-8")
+        a.file = "t.sh"; a.search = "echo ok"; a.replace = "echo ok2"
+        _orig_run = subprocess.run
+        def _boom(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd="bash -n", timeout=10)
+        subprocess.run = _boom
         try:
             do_patch(a, tmp)
-            failures.append("损坏的 hook 配置未被识别")
-        except Fault:
-            pass
+            failures.append("语法器超时未 fail-closed 阻断")
+        except Fault as e:
+            if "SYNTAX_CHECK_TIMEOUT" not in str(e):
+                failures.append(f"超时阻断缺 SYNTAX_CHECK_TIMEOUT 标记: {e}")
+        finally:
+            subprocess.run = _orig_run
+        if shf.read_text(encoding="utf-8") != "echo ok\n":
+            failures.append("fail-closed 后文件被改动")
 
         if failures:
             for f in failures:
                 print(f"self-test FAIL: {f}")
             return 1
-        print("self-test: 8/8 通过（好补丁/hook 放行；坏补丁/多义/未找到/越界/敏感文件/失败hook/坏hook配置均拦截）")
+        print("self-test: 11/11 通过（好补丁/hook 放行/fail-open 降级；坏补丁/多义/未找到/越界/敏感文件/失败 hook/命令缺失 处置正确；非代码文件不受 hook；语法超时 fail-closed 阻断）")
         return 0
     finally:
         _sh.rmtree(tmp, ignore_errors=True)

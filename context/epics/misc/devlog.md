@@ -23,3 +23,11 @@ last-merge: 2026-10-11
 - [2026-10-15] [验证]: grep §0-§9 节号完整 → 通过；wc 前后体积核对 → 通过
 - [2026-10-15] [变更]: skill 体系副作用治理三项落地：①提问预算（护栏0+台账>4收敛或分批+REFERENCE 五条细则）②dev-loop description 去独占式声明、改互指路由 ③快车道判据放宽（≤2→≤3 文件+连续小修默认沿用）
 - [2026-10-15] [验证]: description 443/272/511/533 均 <550 上限 → 通过；grep 提问预算 SKILL+REFERENCE 各 1 处 → 通过；3 条待办流转 done.md → 通过
+- [2026-10-17] [变更]: safe-patcher 写拦截 fail-open 加固：hook 基础设施故障(配置损坏/缺run/超时/执行异常)降级⚠放行不阻塞写路径，语法检查器超时同步降级；拦截面收敛 CODE_EXTS 仅代码文件做语法预检与 hook，md/骨架/文案直写不拦；OK 消息携带告警池；self-test 扩到 9/9
+- [2026-10-17] [验证]: toolbox run safe-patcher --self-test → self-test: 9/9 通过
+- [2026-10-17] [变更]: safe-patcher 门禁闭环：分流策略落地（hook 基础设施故障 fail-open 放行+落台账 DEGRADED_PASS，127 作为判定/故障分界；语法器超时/异常 fail-closed 阻断 SYNTAX_CHECK_TIMEOUT+落台账 BLOCKED）；台账函数 log_degradation_event 写全局 usage-ledger.jsonl（与既有记录同构，env 可覆盖供 self-test 隔离），自身故障不影响写路径；修复 YAML 解析错误掉进 fail-open 的洞（YAMLError 转语法错误）；self-test 扩到 11/11；audit 第 11 项接入 7 天降级台账消费规则（DEGRADED_PASS ⚠/BLOCKED 🛑）
+- [2026-10-17] [验证]: toolbox run safe-patcher --self-test → self-test: 11/11 通过
+- [2026-10-17] [变更]: safe-patcher 移除门禁降级台账机制（log_degradation_event/TOOLBOX_USAGE_LEDGER/audit 第11项消费规则全拆）：坏块拦截本就在写入口完成（语法坏=Rejected 零写入），语法对/逻辑错归编译器管辖，台账无可记事件且无消费场景；保留行为：hook 故障 fail-open 会话内⚠自纠、语法器超时 fail-closed SYNTAX_CHECK_TIMEOUT、self-test 11 用例不变
+- [2026-10-17] [验证]: grep 残留=0 + safe-patcher --self-test 11/11 + 坏语法冒烟 exit 1 [remedy] 正确
+- [2026-10-19] [变更]: 决策留档与生命周期机制改造：①新增 dlog 工具（devlog 决策条目→挂载文档「## 决策日志」/misc-decisions.md 双通道机械化归档+collect 只读聚合）②维护态生命周期（devlog close/reopen/clear+写护栏，epic 目录不搬，archive 仅真退役）③临时绑定（mount-init --temp/--restore，CURRENT base 行，防并行日志错位）④盘点修复（context-lint CURRENT 双态校验/维护态孤儿豁免/SELF 绝对化）+ 规约 §3/§4/§8 去重契约与口径同步
+- [2026-10-19] [验证]: panel/mount-init/ctx-status/devlog/dlog/context-lint 六脚本 self-test 全绿 → 通过
