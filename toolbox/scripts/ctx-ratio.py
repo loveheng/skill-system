@@ -373,12 +373,17 @@ def render_bare(res):
     if res["kind"] == "na":
         return "ctx: n/a（" + "｜".join(res["reasons"]) + "——fail-open 不触发）"
     if res["kind"] == "proxy":
-        return "ctx: 总量 %s（proxy 源——RCR 不可测，不触发）" % pct(res["total_pct"])
+        base = "ctx: 总量 %s（proxy 源——RCR 不可测，不触发）" % pct(res["total_pct"])
+        if res["total_pct"] >= TOTAL_PCT:
+            return base + "｜总量超阈值——建议宿主 compact/重置窗口"
+        return base
     base = "ctx: 总量 %s｜常驻 %s｜RCR %s" % (pct(res["total_pct"]), pct(res["resident_pct"]), pct(res["rcr"]))
     if res["verdict"] == "hit":
-        return "%s ⚠ 命中——建议 ::merge 归并后重置窗口" % base
+        return "%s ⚠ 命中——建议 ::merge 归并后重置窗口（或宿主 compact）" % base
     if res["verdict"] == "cooldown":
-        return "%s（冷却中——不触发归并）" % base
+        return "%s（冷却中——不触发归并；总量高可宿主 compact/重置窗口）" % base
+    if res["total_pct"] >= TOTAL_PCT:
+        return "%s｜RCR 高——归并无益，建议宿主 compact/重置窗口" % base
     return base
 
 
@@ -392,16 +397,24 @@ def render_json(res):
                 "message": "ctx n/a: " + ", ".join(res["reasons"]) + ", fail-open 不触发",
                 "remedy": "已装宿主无本会话属常态; 需探测时 stdin 喂会话或配置 CTX_PROXY_USAGE_FILE"}
     if res["kind"] == "proxy":
-        return {"status": "OK", "severity": "info",
-                "message": "ctx proxy 源: 总量%s, RCR 不可测不触发" % pct(res["total_pct"])}
+        msg = "ctx proxy 源: 总量%s, RCR 不可测不触发" % pct(res["total_pct"])
+        if res["total_pct"] >= TOTAL_PCT:
+            return {"status": "OK", "severity": "warn",
+                    "message": msg, "remedy": "总量超阈值: 建议宿主 compact/重置窗口"}
+        return {"status": "OK", "severity": "info", "message": msg}
     if res["verdict"] == "hit":
         return {"status": "FAIL", "severity": "warn",
                 "message": "ctx 命中: 总量%s 常驻%s RCR%s（阈值 RCR<%s）" % (
                     pct(res["total_pct"]), pct(res["resident_pct"]), pct(res["rcr"]), pct(RCR_PCT)),
-                "remedy": "非排错态: ::merge 归并后重置窗口并 --mark-merged; 排错态: 仅提示不归并"}
+                "remedy": "非排错态: ::merge 归并后重置窗口并 --mark-merged（或宿主 compact）; 排错态: 仅提示不归并"}
     if res["verdict"] == "cooldown":
         return {"status": "OK", "severity": "info",
-                "message": "ctx 达阈值但冷却中(%g 分钟窗): 不触发" % COOLDOWN_MIN}
+                "message": "ctx 达阈值但冷却中(%g 分钟窗): 不触发, 总量高可宿主 compact" % COOLDOWN_MIN}
+    if res["total_pct"] >= TOTAL_PCT:
+        return {"status": "OK", "severity": "warn",
+                "message": "ctx 总量%s 但 RCR 高%s: 归并无益" % (
+                    pct(res["total_pct"]), pct(res["rcr"])),
+                "remedy": "建议宿主 compact/重置窗口"}
     return {"status": "OK", "severity": "info",
             "message": "ctx 正常: 总量%s 常驻%s RCR%s" % (pct(res["total_pct"]), pct(res["resident_pct"]), pct(res["rcr"]))}
 
@@ -488,8 +501,8 @@ def self_test():
     big = jsonl + json.dumps(
         {"message": {"role": "assistant", "content": [{"type": "text", "text": "x" * 100000}]}}) + "\n"
     r = run(["--source", "stdin"], big, thr)
-    if r.returncode != 0:
-        print("self-test: 用例2 高 RCR 不应命中: rc=%s out=%s" % (r.returncode, r.stdout.strip()))
+    if r.returncode != 0 or "宿主 compact" not in r.stdout:
+        print("self-test: 用例2 高 RCR 不应命中且应提示 compact: rc=%s out=%s" % (r.returncode, r.stdout.strip()))
         ok = False
 
     # 用例 3: --mark-merged 落锁 → 同样本再跑降级冷却 exit 0

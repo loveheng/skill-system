@@ -2,8 +2,8 @@
 dev-loop: memory
 format: v1
 epic: misc
-total-merged: 5
-last-merge: 2026-10-11
+total-merged: 6
+last-merge: 2026-10-20
 ---
 
 # misc
@@ -26,6 +26,11 @@ last-merge: 2026-10-11
 - [2026-10-07] 冷启动演练（体系外执行者首次验证闭环）：全新子代理仅凭 dev-init 接入 /tmp/coldstart-drill/todo-cli 全绿（硬卡点 4/4、ctx-audit --init exit 0、panel 绑定卡可出）；9 卡点 12 建议——4 项即修（dev-init §0 空白板定义 / §1-5 无 docs 分支补句 / §1-3 样例指针改 goodshare / §2 audit 口径），余 7 项整改包 + scaffold 欠账 + skill-verify 语义通道入 misc 待办；副作用披露：演练测试曾覆盖 ~/.todo-cli.json 损失 1 条存量（根因已修，教训入 lessons）。
 - [2026-10-11] ctx-ratio 上线（docs/全局池）：总量%+RCR 双阈值+冷却锁+排错豁免+fail-open，触发接 §4 归并（触发方式扩为三）；数据源自适应 zcode/cc/proxy/stdin——zcode 定位走 cli db session.directory 精确匹配 + 尾部渐进窗兜底（开场目录与 system prompt 锚点均会说谎），usage 正则提取、峰值行取消息文本、total 取峰值防旁路小请求污染；panel 状态行 ctx: 字段；首跑即真实命中（86%｜RCR 8%）。v2 候选（proxy 缓存感知/devlog 文件重叠度/宿主 compact 建议）待排期。
 - [2026-10-15] 决策（ADR 轻量级防御演进）：白名单=反事实存活探针（可 GC）·规则=禁零触发 GC（不对称）；拒 PID 锁/自动 worktree，采 flock+mkdir 原子原语；593%=长会话陈旧累积，暴露 resident% 以事实替代恐慌。1–3 项（白名单探针/resident%/锁原语）本轮实施。
+- [2026-10-11] ctx-ratio n/a 归因五态改造：probe 拆分 未装/无会话/数据不足/未配置/文件无效，bare/brief/json 逐源留因。
+- [2026-10-15] 评估修订四件套：lessons 测试外生性断言 / dev-loop 测试写保护+Expand-Contract+跨库只读评估-移交 / solution-admission Spike-Solidify 双轴 / agent-toolbox 薄 CLI 管道原则；mscan 最小变异工具上线（含 dart）；dev-loop 瘦身 232→126 行细则下沉 REFERENCE；提问预算 + description 互指路由 + 快车道 ≤3 文件。
+- [2026-10-17] safe-patcher 写门禁两轮迭代：hook 基础设施故障 fail-open 放行、语法器超时 fail-closed、拦截面收敛 CODE_EXTS；降级台账试装后拆除（坏块拦截已在写入口完成，台账无消费场景），self-test 11/11。
+- [2026-10-19] 决策留档与生命周期改造：dlog 工具（决策条目→挂载文档「决策日志」/misc-decisions.md 双通道）、维护态生命周期（devlog close/reopen/clear，目录不搬）、临时绑定（--temp/--restore base 行）、context-lint CURRENT 双态校验与规约同步。
+- [2026-10-20] ::audit 补记（架构自洽评估）：两处张力待收敛——①dev-loop 薄指针与一行口径复述边界模糊（REFERENCE 仅 92 行，细则实居 SKILL）②toolbox 规范 SSOT 双声明（SKILL.md vs mgr 内嵌 spec，上位关系未写明）；归并阈值失灵已由本轮归并修复（20 条积压）。
 
 ## 断点
-- [断点] 下一步：轻量级防御演进 1–3 项已落地；v2 候选（proxy 缓存感知/devlog 文件重叠度/宿主 compact 建议）待用户排期
+- [断点] 下一步：goodhub 仓执行移交件（用户侧）；ctx-ratio v2：③ 已落地，① 挂起待 proxy 样本，② 暂缓
