@@ -47,12 +47,14 @@ scan() {
     epic=''
   fi
   [ -z "$epic" ] && epic='(未绑定)'
-  bp=$(grep -h '^-[[:space:]]*\[断点\]' "$ctx/epics/$epic/memory.md" "$ctx/epics/misc/memory.md" 2>/dev/null | head -n 1 | sed 's/^- \[断点\][[:space:]]*//')
+  ED="$ctx/epics/$epic"
+  [ "$(sed -n '2,12{s/^state:[[:space:]]*//p}' "$ED/memory.md" 2>/dev/null | head -n 1)" = 'maintenance' ] && epic="${epic}(维护)"
+  bp=$(grep -h '^-[[:space:]]*\[断点\]' "$ED/memory.md" "$ctx/epics/misc/memory.md" 2>/dev/null | head -n 1 | sed 's/^- \[断点\][[:space:]]*//')
   [ -z "$bp" ] && bp='（缺失，应恒为 1 条）'
-  d_epic=$(tail -n 20 "$ctx/epics/$epic/devlog.md" 2>/dev/null | grep -c '^- \[' || true)
+  d_epic=$(tail -n 20 "$ED/devlog.md" 2>/dev/null | grep -c '^- \[' || true)
   d_misc=$(tail -n 20 "$ctx/epics/misc/devlog.md" 2>/dev/null | grep -c '^- \[' || true)
   les=$(grep -c '^- \[' "$ctx/lessons.md" 2>/dev/null || true)
-  mlines=$(wc -l < "$ctx/epics/$epic/memory.md" 2>/dev/null | tr -d '[:space:]')
+  mlines=$(wc -l < "$ED/memory.md" 2>/dev/null | tr -d '[:space:]')
   [ -z "$mlines" ] && mlines=0
   pc=''
   if [ -f "$ctx/pending-confirm.md" ]; then
@@ -91,6 +93,15 @@ EOF
   printf '%s' "$out" | grep -q 'epic: demo' || { echo "self-test: 未输出 epic"; ok=0; }
   printf '%s' "$out" | grep -q 'devlog(epic+misc)=3' || { echo "self-test: 待归并计数错误: $out"; ok=0; }
   printf '%s' "$out" | grep -q 'memory: 12 行' || { echo "self-test: memory 行数错误: $out"; ok=0; }
+  # 维护态用例：epic 永驻 epics/，memory 头部 state: maintenance → 状态行标 (维护)
+  mkdir -p "$td/c/context/epics/retired"
+  printf -- '---\ndev-loop: memory\nformat: v1\nepic: retired\ntotal-merged: 0\nlast-merge: none\nstate: maintenance\n---\n\n# retired\n\n## 断点\n- [断点] 已完结：首轮交付\n' > "$td/c/context/epics/retired/memory.md"
+  printf -- '- [2026-09-19] [变更]: r\n' > "$td/c/context/epics/retired/devlog.md"
+  printf 'epic: retired\n' > "$td/c/context/CURRENT"
+  out=$(sh "$0" --root "$td/c" 2>&1)
+  printf '%s' "$out" | grep -q 'epic: retired(维护)' || { echo "self-test: 状态行缺维护标记: $out"; ok=0; }
+  printf '%s' "$out" | grep -q '断点: 已完结：首轮交付' || { echo "self-test: 维护态断点未取到: $out"; ok=0; }
+  printf '%s' "$out" | grep -q 'memory: 13 行' || { echo "self-test: 维护态 memory 行数错误: $out"; ok=0; }
   if [ "$ok" -eq 1 ]; then echo "self-test: OK"; rm -rf "$td"; return 0; fi
   rm -rf "$td"; return 2
 }

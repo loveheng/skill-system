@@ -18,6 +18,7 @@ THRESHOLD=5
 ROOT=""
 JSON=0
 EPIC=""
+EPIC_DIR=""
 TEXT=""
 
 usage() {
@@ -38,6 +39,12 @@ devlog — dev-loop 记账单一入口（devlog 追加 / lessons 追加 / 断点
   bp      <epic> <文本...>          刷新 context/epics/<epic>/memory.md 断点行
                                     （单趟替换+重复去重；章节缺失则重建，替换后校验恒为 1 行；
                                     flock 可用时临界区持锁——锁点 <memory.md>.bp.lock，进程退出自动释放）
+  close   <epic> <完结说明>         收尾标记（不搬目录）：memory 头部写 state: maintenance
+                                    + 断点改「已完结：<说明>」+ CURRENT → epic: none
+  reopen  <epic>                    重开：清 state 标记 + 断点回「下一步：等待拆解」+ CURRENT 指回 epic
+  clear   <epic>                    收尾清账（::done 末步，dlog 归档+memory 提炼完成后调用）：
+                                    清空 devlog 追加区 + 头部同步（total-merged+1、last-merge=今天）
+                                    ——防 reopen 后旧账混入自动归并
   count   <epic>                    devlog 尾部 20 行内未归并条目计数（阈值 5，达到应归并）
 
 全局选项:
@@ -104,13 +111,85 @@ append_change_pair() {
   fi
 }
 
-# $1 → EPIC：非路径成分且目录存在
+# $1 → EPIC/EPIC_DIR：非路径成分且 epics/<名> 目录存在
 validate_epic() {
   EPIC="${1-}"
   case "$EPIC" in
     ""|.|..|*/*) die1 "epic 名非法: ${EPIC-空}" "传 context/epics 下已存在的 epic 名（如 goodshare / misc）" ;;
   esac
-  [ -d "$ROOT/context/epics/$EPIC" ] || die1 "epic 目录不存在: context/epics/$EPIC" "先 @file/@bind 绑定 epic（会创建骨架），或检查拼写"
+  EPIC_DIR="$ROOT/context/epics/$EPIC"
+  [ -d "$EPIC_DIR" ] || die1 "epic 目录不存在: context/epics/$EPIC" "先 @file/@bind 绑定 epic（会创建骨架），或检查拼写"
+}
+
+# 维护态写护栏：已收尾 epic（memory 头部 state: maintenance）禁止追加/断点刷新——先 reopen
+# （close/reopen/clear 三通道自身不受限；防收尾后惯性写日志落错状态）
+require_active() {
+  if [ "$(sed -n '2,12{s/^state:[[:space:]]*//p}' "$EPIC_DIR/memory.md" 2>/dev/null | head -n 1)" = maintenance ]; then
+    die1 "epic 已收尾进入维护态: $EPIC" "先 toolbox run devlog reopen $EPIC 解除维护态再写"
+  fi
+}
+
+# 维护态标记：memory 头部 YAML 的 state 行（$1=maintenance 写入；空=删除）
+set_state() {
+  _m="$EPIC_DIR/memory.md"
+  _st_tmp="$_m.state.tmp"
+  if [ -n "$1" ]; then
+    awk -v st="state: $1" '
+      /^state: /{ if(!done){print st; done=1}; next }
+      /^---[[:space:]]*$/{ n++; if(n==2 && !done){ print st; done=1 } }
+      { print }
+    ' "$_m" > "$_st_tmp" && mv "$_st_tmp" "$_m" || { rm -f "$_st_tmp"; die2 "state 写入失败: $_m"; }
+  else
+    grep -v '^state: ' "$_m" > "$_st_tmp" && mv "$_st_tmp" "$_m" || { rm -f "$_st_tmp"; die2 "state 清除失败: $_m"; }
+  fi
+}
+
+# close：收尾标记（不搬目录）——头部 state: maintenance + 断点改完结说明 + CURRENT → none
+run_close() {
+  set_state maintenance
+  _m="$EPIC_DIR/memory.md"
+  _tmp="$_m.close.tmp"
+  awk -v repl="- [断点] 已完结：$TEXT" '/^- \[断点\]/{if(!done){print repl;done=1};next}{print}' "$_m" > "$_tmp" \
+    && mv "$_tmp" "$_m" || { rm -f "$_tmp"; die2 "断点改写失败: $_m"; }
+  printf 'epic: none\n' > "$ROOT/context/CURRENT"
+  echo "APPEND: state: maintenance ｜ 断点 → 已完结：$TEXT ｜ CURRENT → epic: none（目录未动，维护态就绪）"
+}
+
+# reopen：重开——清 state 标记 + 断点回「等待拆解」+ CURRENT 指回本 epic
+run_reopen() {
+  set_state ''
+  _m="$EPIC_DIR/memory.md"
+  _tmp="$_m.reopen.tmp"
+  awk -v repl="- [断点] 下一步：等待拆解" '/^- \[断点\]/{if(!done){print repl;done=1};next}{print}' "$_m" > "$_tmp" \
+    && mv "$_tmp" "$_m" || { rm -f "$_tmp"; die2 "断点改写失败: $_m"; }
+  printf 'epic: %s\n' "$EPIC" > "$ROOT/context/CURRENT"
+  echo "APPEND: state 标记已清除 ｜ 断点 → 下一步：等待拆解 ｜ CURRENT → epic: $EPIC（维护态解除）"
+}
+
+# clear：收尾清账（::done 末步，dlog 归档与 memory 提炼完成后调用）——清空追加区+头部同步
+# （total-merged+1、last-merge=今天，对齐 §4 归并头部语义），防 reopen 后旧账混入自动归并
+run_clear() {
+  _f="$EPIC_DIR/devlog.md"
+  _tmp="$_f.clear.tmp"
+  _tm=$(grep -m1 '^total-merged: ' "$_f" | sed 's/^total-merged:[[:space:]]*//')
+  case "$_tm" in ''|*[!0-9]*) _tm=0 ;; esac
+  _lm="${TODAY:-$(date +%F)}"
+  awk -v tm="$((_tm + 1))" -v lm="$_lm" '
+    BEGIN { n = 0; inhdr = 1; got_tm = 0; got_lm = 0 }
+    !inhdr { next }                       # 追加区整段丢弃（清空）
+    /^---[[:space:]]*$/ {
+      n++
+      if (n == 2 && !got_tm) { print "total-merged: " tm; got_tm = 1 }
+      if (n == 2 && !got_lm) { print "last-merge: " lm; got_lm = 1 }
+      print
+      if (n == 2) inhdr = 0
+      next
+    }
+    /^total-merged: / { print "total-merged: " tm; got_tm = 1; next }
+    /^last-merge: / { print "last-merge: " lm; got_lm = 1; next }
+    { print }
+  ' "$_f" > "$_tmp" && mv "$_tmp" "$_f" || { rm -f "$_tmp"; die2 "清账失败: $_f"; }
+  echo "CLEAR: $EPIC devlog 追加区已清空（total-merged=$((_tm + 1))、last-merge=$_lm）"
 }
 
 # $1=文件 $2=行：追加（最近 5 行内有完全相同条目则幂等跳过）
@@ -130,7 +209,7 @@ append_dedupe() {
 # 无陈旧态——ADR 轻量级防御 2026-10-15；flock 缺失（非 Linux）降级无锁，
 # 并行纪律「同 epic 禁双窗口同写」仍是第一道防线）。
 run_bp() {
-  FILE="$ROOT/context/epics/$EPIC/memory.md"
+  FILE="$EPIC_DIR/memory.md"
   TMP="$FILE.bp.tmp"
   if command -v flock >/dev/null 2>&1; then
     exec 9>>"$FILE.bp.lock" || die2 "断点锁点创建失败: $FILE.bp.lock"
@@ -140,6 +219,16 @@ run_bp() {
     || die2 "awk 写临时文件失败"
   if grep -Fqx -- "- [断点] 下一步：$TEXT" "$TMP" >/dev/null 2>&1; then
     mv "$TMP" "$FILE" || die2 "替换断点行失败"
+    # 既有断点行被替换、但缺 ## 断点 章节标题时，此前永远走不到重建分支
+    # （grep 命中即判替换成功）——在首个断点行前补章节标题，使 context-lint
+    # 「缺 ## 断点 章节」与 dev-loop §3 断点恒一行的口径同时满足
+    if [ "$(grep -c '^## 断点' "$FILE" 2>/dev/null)" = "0" ]; then
+      awk '/^- \[断点\]/{if(!d){print "## 断点"; d=1} print; next}{print}' "$FILE" > "$FILE.bp.tmp2" \
+        || die2 "补断点章节标题失败"
+      cat "$FILE.bp.tmp2" > "$FILE" || die2 "补断点章节标题写回失败"
+      rm -f "$FILE.bp.tmp2"
+      echo "BP-SECTION-ADDED: ## 断点"
+    fi
     echo "BP-REPLACED: - [断点] 下一步：$TEXT"
   else
     rm -f "$TMP"
@@ -157,7 +246,7 @@ self_test() {
   D="$T/context/epics/$E/devlog.md"
   M="$T/context/epics/$E/memory.md"
   L="$T/context/lessons.md"
-  printf -- '---\ndev-loop: devlog\nformat: v1\n---\n\n# log\n' > "$D" || exit 2
+  printf -- '---\ndev-loop: devlog\nformat: v1\nepic: t-self\ntotal-merged: 0\nlast-merge: none\n---\n\n# log\n' > "$D" || exit 2
   printf -- '---\ndev-loop: memory\nformat: v1\n---\n\n# mem\n\n## 断点\n- [断点] 下一步：旧断点\n' > "$M" || exit 2
   printf -- '# lessons\n\n## flutter/ui\n\n正文行\n' > "$L" || exit 2
 
@@ -236,6 +325,43 @@ self_test() {
   VERIFY_TXT=""; NOVERIFY_TXT=""
   ( ROOT="$T"; JSON=1; validate_epic "$E"; validate_text "预检变更"; check_pairing ) >/dev/null 2>&1
   chk "JSON 预检缺配对 FAIL" "$?" "1"
+  # 16 close：state 标记 + 断点完结 + CURRENT none（目录不动）
+  validate_epic "$E"; validate_text "首轮交付完成"
+  run_close >/dev/null
+  chk "close state 标记" "$(grep -c '^state: maintenance' "$_m")" "1"
+  chk "close 断点完结" "$(grep -c '^- \[断点\] 已完结：首轮交付完成' "$_m")" "1"
+  chk "close CURRENT none" "$(cat "$ROOT/context/CURRENT")" "epic: none"
+  chk "close 后目录仍在" "$([ -d "$ROOT/context/epics/$E" ] && echo 在 || echo 无)" "在"
+  # 17 close 幂等（重复 close 不产生第二个 state 行）
+  validate_text "再次完结"
+  run_close >/dev/null
+  chk "close 幂等 state 恒 1" "$(grep -c '^state: maintenance' "$_m")" "1"
+  # 18 reopen：清标记 + 断点等待拆解 + CURRENT 指回
+  run_reopen >/dev/null
+  chk "reopen state 清除" "$(grep -c '^state: ' "$_m")" "0"
+  chk "reopen 断点等待拆解" "$(grep -c '^- \[断点\] 下一步：等待拆解' "$_m")" "1"
+  chk "reopen CURRENT 指回" "$(cat "$ROOT/context/CURRENT")" "epic: $E"
+  # 19 clear：追加区清空 + 头部同步（dlog 归档在先，防 reopen 旧账混入归并）
+  validate_epic "$E"
+  run_clear >/dev/null
+  chk "clear 追加区清空" "$(grep -c '^- \[' "$D")" "0"
+  chk "clear total-merged+1" "$(grep -c '^total-merged: 1' "$D")" "1"
+  chk "clear last-merge 今天" "$(grep -c "^last-merge: $TODAY" "$D")" "1"
+  chk "clear 头部 epic 保留" "$(grep -c '^epic: t-self' "$D")" "1"
+  # 20 clear 二次（幂等安全，头部继续 +1）
+  run_clear >/dev/null
+  chk "clear 二次 total-merged=2" "$(grep -c '^total-merged: 2' "$D")" "1"
+  chk "clear 二次仍为空" "$(grep -c '^- \[' "$D")" "0"
+  # 21 维护态写护栏：close 后 change/bp 被拒，reopen 后恢复可写
+  validate_text "收尾完结说明"
+  run_close >/dev/null
+  ( ROOT="$T"; JSON=0; validate_epic "$E"; validate_text "收尾后追加" ; require_active ) >/dev/null 2>&1
+  chk "close 后追加被拒" "$?" "1"
+  ( ROOT="$T"; JSON=0; validate_epic "$E"; validate_text "收尾后断点" ; require_active ) >/dev/null 2>&1
+  chk "close 后 bp 同被拒" "$?" "1"
+  run_reopen >/dev/null
+  ( ROOT="$T"; JSON=0; validate_epic "$E"; validate_text "重开后追加" ; require_active ) >/dev/null 2>&1
+  chk "reopen 后追加恢复" "$?" "0"
 
   rm -rf "$T"
   echo "self-test: $pass 通过 / $failed 失败"
@@ -270,7 +396,7 @@ if [ $# -eq 0 ]; then
 fi
 OP="$1"; shift
 case "$OP" in
-  change|verify|note|lesson|bp|count) ;;
+  change|verify|note|lesson|bp|count|close|reopen|clear) ;;
   *) die1 "未知子命令: $OP" "见 devlog --help" ;;
 esac
 
@@ -291,7 +417,8 @@ case "$OP" in
     done
     validate_text "$@"
     check_pairing
-    FILE="$ROOT/context/epics/$EPIC/devlog.md"
+    require_active
+    FILE="$EPIC_DIR/devlog.md"
     [ -f "$FILE" ] || die1 "devlog.md 不存在: $FILE" "先 @file/@bind 绑定 epic（会创建骨架）"
     if [ -n "$VERIFY_TXT" ]; then
       check_single_line "$VERIFY_TXT" "--verify 文本"
@@ -309,7 +436,8 @@ case "$OP" in
     [ $# -ge 2 ] || die1 "verify 需要 <epic> 与 <文本...>" "devlog verify <epic> <文本...>"
     validate_epic "$1"; shift
     validate_text "$@"
-    FILE="$ROOT/context/epics/$EPIC/devlog.md"
+    require_active
+    FILE="$EPIC_DIR/devlog.md"
     [ -f "$FILE" ] || die1 "devlog.md 不存在: $FILE" "先 @file/@bind 绑定 epic（会创建骨架）"
     LINE="- [$TODAY] [验证]: $TEXT"
     if [ "$JSON" = 1 ]; then json_ok "预检通过: 将追加到 ${FILE#"$ROOT"/}"; exit 0; fi
@@ -321,7 +449,8 @@ case "$OP" in
     TAG="$1"; shift
     case "$TAG" in ""|*" "*) die1 "标签非法（非空且不含空格）" "如 决策 / 环境坑";; esac
     validate_text "$@"
-    FILE="$ROOT/context/epics/$EPIC/devlog.md"
+    require_active
+    FILE="$EPIC_DIR/devlog.md"
     [ -f "$FILE" ] || die1 "devlog.md 不存在: $FILE" "先 @file/@bind 绑定 epic（会创建骨架）"
     LINE="- [$TODAY] [$TAG]: $TEXT"
     if [ "$JSON" = 1 ]; then json_ok "预检通过: 将追加到 ${FILE#"$ROOT"/}"; exit 0; fi
@@ -337,22 +466,55 @@ case "$OP" in
     [ -f "$FILE" ] || die1 "lessons.md 不存在: $FILE" "先经 dev-init 初始化 context/ 体系"
     LINE="- [$MODULE] $TEXT (Ref: $EPIC)"
     if [ "$JSON" = 1 ]; then json_ok "预检通过: 将追加到 ${FILE#"$ROOT"/}"; exit 0; fi
-    append_dedupe "$FILE" "$LINE"
+    # 落点纪律：新教训进「## 待归并」节（无则建于文末），归并时再搬入主题节。
+    # 旧实现裸 append 到文末会落进上一主题节内，context-lint 按「待归并节」计数即漏计
+    # （2026-10-19 lessons 归并时撞出：归并后仍恒报待归并）。
+    if grep -Fqx -- "$LINE" "$FILE" 2>/dev/null; then
+      echo "SKIP（已有同条目，幂等跳过）"
+    else
+      awk -v line="$LINE" 'BEGIN{done=0} /^## 待归并/{print; print ""; print line; done=1; next} {print} END{if(!done){print ""; print "## 待归并（inbox）"; print ""; print line}}' "$FILE" > "$FILE.inbox.tmp" || die2 "写 lessons inbox 失败"
+      cat "$FILE.inbox.tmp" > "$FILE" || die2 "lessons inbox 写回失败"
+      rm -f "$FILE.inbox.tmp"
+      echo "APPEND(inbox): $LINE"
+    fi
     ;;
   bp)
     [ $# -ge 2 ] || die1 "bp 需要 <epic> 与 <文本...>" "devlog bp <epic> <下一步内容>"
     validate_epic "$1"; shift
     validate_text "$@"
-    FILE="$ROOT/context/epics/$EPIC/memory.md"
+    require_active
+    FILE="$EPIC_DIR/memory.md"
     [ -f "$FILE" ] || die1 "memory.md 不存在: $FILE" "先 @file/@bind 绑定 epic（会创建骨架）"
     NEW="- [断点] 下一步：$TEXT"
     if [ "$JSON" = 1 ]; then json_ok "预检通过: 将刷新 $EPIC 断点行"; exit 0; fi
     run_bp
     ;;
+  close)
+    [ $# -ge 2 ] || die1 "close 需要 <epic> 与 <完结说明>" "devlog close <epic> <完结说明>"
+    validate_epic "$1"; shift
+    validate_text "$@"
+    [ -f "$EPIC_DIR/memory.md" ] || die1 "memory.md 不存在: $EPIC_DIR/memory.md" "epic 骨架缺失"
+    if [ "$JSON" = 1 ]; then json_ok "预检通过: $EPIC → 维护态（state 标记+断点完结+CURRENT none，目录不动）"; exit 0; fi
+    run_close
+    ;;
+  reopen)
+    [ $# -ge 1 ] || die1 "reopen 需要 <epic>" "devlog reopen <epic>"
+    validate_epic "$1"; shift
+    [ -f "$EPIC_DIR/memory.md" ] || die1 "memory.md 不存在: $EPIC_DIR/memory.md" "epic 骨架缺失"
+    if [ "$JSON" = 1 ]; then json_ok "预检通过: $EPIC 解除维护态（state 清除+断点等待拆解+CURRENT 指回）"; exit 0; fi
+    run_reopen
+    ;;
+  clear)
+    [ $# -ge 1 ] || die1 "clear 需要 <epic>" "devlog clear <epic>"
+    validate_epic "$1"; shift
+    [ -f "$EPIC_DIR/devlog.md" ] || die1 "devlog.md 不存在: $EPIC_DIR/devlog.md" "epic 骨架缺失"
+    if [ "$JSON" = 1 ]; then json_ok "预检通过: 清空 $EPIC devlog 追加区（头部 total-merged+1、last-merge=$TODAY）"; exit 0; fi
+    run_clear
+    ;;
   count)
     [ $# -ge 1 ] || die1 "count 需要 <epic>" "devlog count <epic>"
     validate_epic "$1"; shift
-    FILE="$ROOT/context/epics/$EPIC/devlog.md"
+    FILE="$EPIC_DIR/devlog.md"
     [ -f "$FILE" ] || die1 "devlog.md 不存在: $FILE" "先 @file/@bind 绑定 epic（会创建骨架）"
     _n=$(tail -n 20 "$FILE" 2>/dev/null | grep -c '^- \[')
     if [ "$_n" -ge "$THRESHOLD" ]; then

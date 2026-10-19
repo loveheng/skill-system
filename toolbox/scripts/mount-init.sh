@@ -14,7 +14,7 @@
 # 文档首稿内容仍须 AI 提炼自讨论落盘（严禁占位文案）。
 set -u
 SELF=$0
-ROOT=''; EPIC=''; DOC=''; TITLE=''; CREATE_DOC=0; CURRENT_ONLY=0; DRY=0; JSON=0
+ROOT=''; EPIC=''; DOC=''; TITLE=''; CREATE_DOC=0; CURRENT_ONLY=0; TEMP=0; RESTORE=0; DRY=0; JSON=0
 
 usage() {
   cat <<'EOF'
@@ -39,6 +39,9 @@ mount-init —— epic 挂载初始化（::bind 机械件；幂等安全：已�
 
 模式:
   --current-only   只改写 CURRENT 到已存在的 epic（切换/续绑，不建骨架）
+  --temp           临时绑定（并行临时任务防日志错位）：原绑定记入 CURRENT 第二行 base:，
+                   CURRENT 指向临时 epic；恢复走 --restore。禁止嵌套（已有 base 行先 --restore）
+  --restore        恢复基础绑定：按 CURRENT 的 base 行改写回 epic 并清除临时态
   --create-doc     底子文档不存在时连骨架一起创建（候选空 → 先建文档再挂载的机械件）
   --dry-run        只打印将做什么，不落盘
   --json           预检结论（不落盘）：各校验项通过与否——AI 亮牌确认前先跑这个
@@ -125,6 +128,34 @@ exec_self_test() {
   mkdir -p context/epics/race
   sh "$SELF" --root "$T" --epic race --doc docs/design/race.md --create-doc >/dev/null 2>&1 && { echo 'fail: T11 已存在空目录应拒'; ok=0; }
   [ ! -f context/epics/race/memory.md ] || { echo 'fail: T11 被拒不得落骨架'; ok=0; }
+  # T12 维护态拦截与续绑：memory 头部 state: maintenance 的 epic 完整挂载拒，--current-only 放行且不清标记
+  mkdir -p context/epics/retired
+  printf -- '---\ndev-loop: memory\nformat: v1\nepic: retired\ntotal-merged: 0\nlast-merge: none\nstate: maintenance\n---\n\n# retired\n\n- [挂载] docs/design/retired.md\n\n## 断点\n- [断点] 已完结：首轮交付\n' > context/epics/retired/memory.md
+  printf -- '---\nstatus: active\nupdated: 2026-10-01\n---\n\n# retired\n' > docs/design/retired.md
+  sh "$SELF" --root "$T" --epic retired --doc docs/design/retired.md >/dev/null 2>&1 && { echo 'fail: T12 维护态完整挂载应拒'; ok=0; }
+  grep -q '^epic: ghost$' context/CURRENT || { echo 'fail: T12 被拒不得改 CURRENT'; ok=0; }
+  sh "$SELF" --root "$T" --epic retired --current-only >/dev/null 2>&1 \
+    || { echo 'fail: T12b 维护态续绑应成功'; ok=0; }
+  grep -q '^epic: retired$' context/CURRENT || { echo 'fail: T12b CURRENT 未改写'; ok=0; }
+  grep -q '^state: maintenance$' context/epics/retired/memory.md || { echo 'fail: T12b 续绑不得清维护标记'; ok=0; }
+  # T13 临时绑定往返：base 行记原绑定，restore 恢复并清临时态（misc devlog 先清账，防切换前置误伤）
+  : > context/epics/misc/devlog.md
+  sh "$SELF" --root "$T" --epic demo --current-only >/dev/null 2>&1
+  sh "$SELF" --root "$T" --epic misc --temp >/dev/null 2>&1 || { echo 'fail: T13 --temp 应成功'; ok=0; }
+  grep -q '^epic: misc$' context/CURRENT || { echo 'fail: T13 CURRENT 未指向临时 epic'; ok=0; }
+  grep -q '^base: demo$' context/CURRENT || { echo 'fail: T13 base 行缺失'; ok=0; }
+  sh "$SELF" --root "$T" --epic retired --temp >/dev/null 2>&1 && { echo 'fail: T13 嵌套临时绑定应拒'; ok=0; }
+  sh "$SELF" --root "$T" --restore >/dev/null 2>&1 || { echo 'fail: T13 --restore 应成功'; ok=0; }
+  grep -q '^epic: demo$' context/CURRENT || { echo 'fail: T13 未恢复基础绑定'; ok=0; }
+  grep -q '^base: ' context/CURRENT && { echo 'fail: T13 base 行残留'; ok=0; }
+  sh "$SELF" --root "$T" --restore >/dev/null 2>&1 && { echo 'fail: T13 无临时绑定再 restore 应拒'; ok=0; }
+  # T13b 临时 epic 有未归并日志时恢复被拦（切换前置）
+  sh "$SELF" --root "$T" --epic misc --temp >/dev/null 2>&1
+  printf -- '- [2026-10-02] [变更]: t\n' >> context/epics/misc/devlog.md
+  sh "$SELF" --root "$T" --restore >/dev/null 2>&1 && { echo 'fail: T13b 临时 epic 未归并应拦'; ok=0; }
+  : > context/epics/misc/devlog.md
+  sh "$SELF" --root "$T" --restore >/dev/null 2>&1 || { echo 'fail: T13b 清账后 restore 应成功'; ok=0; }
+  grep -q '^epic: demo$' context/CURRENT || { echo 'fail: T13b 未恢复基础绑定'; ok=0; }
   rm -rf "$T"
   if [ "$ok" -eq 1 ]; then echo 'self-test: OK（全链路+五类拦截+切换前置+dry-run+json 预检+原子 mkdir 闸门）'; return 0; fi
   return 2
@@ -138,6 +169,8 @@ while [ $# -gt 0 ]; do
     --title) [ $# -ge 2 ] || { echo '[remedy] --title 缺参数'; exit 2; }; TITLE=$2; shift 2 ;;
     --create-doc) CREATE_DOC=1; shift ;;
     --current-only) CURRENT_ONLY=1; shift ;;
+    --temp) TEMP=1; CURRENT_ONLY=1; shift ;;
+    --restore) RESTORE=1; shift ;;
     --dry-run) DRY=1; shift ;;
     --json) JSON=1; shift ;;
     --self-test) exec_self_test; exit $? ;;
@@ -158,13 +191,16 @@ fi
 CTX="$ROOT/context"
 
 # ---- 参数完整性 ----
-if [ "$CURRENT_ONLY" -eq 1 ]; then
-  [ -n "$EPIC" ] || fail '补 --epic <名>（--current-only 切换目标）' '--current-only 需要 --epic'
+if [ "$RESTORE" -eq 1 ]; then
+  [ -z "$EPIC" ] || fail '--restore 不接受 --epic（恢复目标来自 CURRENT 的 base 行）' '去掉 --epic 重跑'
+elif [ "$CURRENT_ONLY" -eq 1 ]; then
+  [ -n "$EPIC" ] || fail '补 --epic <名>（--current-only/--temp 切换目标）' '--current-only/--temp 需要 --epic'
 else
   { [ -n "$EPIC" ] && [ -n "$DOC" ]; } || fail '补 --epic <名> 与 --doc <docs/...md>（候选列表跑 toolbox run panel --mounts）' '--epic 与 --doc 必填'
 fi
 
-# ---- epic 名校验 ----
+# ---- epic 名校验（维护态 = epics/<名>/memory.md 头部 state: maintenance，目录不搬）----
+if [ "$RESTORE" -eq 0 ]; then
 case "$EPIC" in
   *[!A-Za-z0-9_-]*|'') fail 'epic 名仅限字母/数字/-/_（对齐 panel valid_epic）' "epic 名非法: $EPIC" ;;
 esac
@@ -173,9 +209,15 @@ if [ "$CURRENT_ONLY" -eq 0 ] && [ "$EPIC" = 'misc' ]; then
   fail 'misc 是常驻散修挂靠点，不建正式挂载（散修直接落 misc，dev-loop §3）' 'misc 不可挂载'
 fi
 EPIC_DIR="$CTX/epics/$EPIC"
+# 维护态 epic 完整挂载拦截：先解除维护标记再续绑（devlog reopen），或 --current-only 续绑
+if [ "$CURRENT_ONLY" -eq 0 ] && [ -d "$EPIC_DIR" ] \
+   && [ "$(sed -n '2,12{s/^state:[[:space:]]*//p}' "$EPIC_DIR/memory.md" 2>/dev/null | head -n 1)" = 'maintenance' ]; then
+  fail "先重开（toolbox run devlog reopen $EPIC）再完整挂载；或续绑走 --current-only --epic $EPIC" "epic 处于维护态（memory 头部 state: maintenance）: $EPIC"
+fi
+fi
 
-# ---- 底子文档校验（--current-only 跳过）----
-if [ "$CURRENT_ONLY" -eq 0 ]; then
+# ---- 底子文档校验（--current-only/--restore 跳过）----
+if [ "$CURRENT_ONLY" -eq 0 ] && [ "$RESTORE" -eq 0 ]; then
   case "$DOC" in
     docs/*.md) : ;;
     *) fail '底子文档落点写死 docs/ 下（dev-loop §3 文档锚定）' "doc 不在 docs/ 下: $DOC" ;;
@@ -186,10 +228,14 @@ if [ "$CURRENT_ONLY" -eq 0 ]; then
   slug=${DOC##*/}; slug=${slug%.md}
   [ "$slug" = "$EPIC" ] || fail 'epic 名 = 文档 slug（dev-loop §3 写死）；改名或另选文档' "slug 不一致: epic=$EPIC vs doc=$DOC"
   DOC_PATH="$ROOT/$DOC"
-  DOC_EPIC=$(grep -rlF -- "- [挂载] $DOC" "$CTX"/epics/*/memory.md 2>/dev/null | head -n 1)
+  DOC_EPIC=$(grep -rlF -- "- [挂载] $DOC" "$CTX"/epics/*/memory.md "$CTX"/archive/*/memory.md 2>/dev/null | head -n 1)
   if [ -n "$DOC_EPIC" ]; then
     holder=$(basename "$(dirname "$DOC_EPIC")")
-    fail "续绑该 epic（::bind $holder）或其 ::done 归档后重开（一文档一主线）" "文档已被挂载: $DOC → epic $holder"
+    holder_dir=$(dirname "$DOC_EPIC")
+    case "$holder_dir" in
+      */archive/*) holder="$holder（已退役归档）" ;;
+    esac
+    fail "续绑该 epic（::bind $holder）（一文档一主线）" "文档已被挂载: $DOC → epic $holder"
   fi
   if [ -f "$DOC_PATH" ]; then
     if [ "$CREATE_DOC" -eq 1 ]; then
@@ -208,15 +254,55 @@ fi
 old_epic=''
 [ -f "$CTX/CURRENT" ] && old_epic=$(sed -n 's/^epic:[[:space:]]*//p' "$CTX/CURRENT" 2>/dev/null | head -n 1)
 if [ -n "$old_epic" ] && [ "$old_epic" != "$EPIC" ] && [ "$old_epic" != 'none' ]; then
-  pending=$(grep -c '^- \[' "$CTX/epics/$old_epic/devlog.md" 2>/dev/null || true)
+  case "$old_epic" in
+    archive/*) OLD_DIR="$CTX/$old_epic" ;;
+    *)         OLD_DIR="$CTX/epics/$old_epic" ;;
+  esac
+  pending=$(grep -c '^- \[' "$OLD_DIR/devlog.md" 2>/dev/null || true)
   [ "${pending:-0}" -gt 0 ] && fail "先对旧 epic 执行 ::merge 归并（待归并 $pending 条）再绑定" "切换前置未过: $old_epic devlog 待归并 $pending 条"
+fi
+
+# ---- --restore：恢复基础绑定（清临时态；临时 epic 有未归并日志被切换前置拦在上一步）----
+if [ "$RESTORE" -eq 1 ]; then
+  base_val=$(sed -n 's/^base:[[:space:]]*//p' "$CTX/CURRENT" 2>/dev/null | head -n 1)
+  [ -n "$base_val" ] || fail '当前无临时绑定（CURRENT 无 base 行）' '仅在临时绑定态使用 --restore'
+  if [ "$DRY" -eq 1 ]; then
+    [ "$JSON" -eq 1 ] && { json_out OK info "[dry-run] 恢复基础绑定: epic: $base_val"; exit 0; }
+    echo "[dry-run] CURRENT → epic: $base_val（清除临时态）"
+    exit 0
+  fi
+  if [ "$JSON" -eq 1 ]; then json_out OK info "预检通过: 恢复基础绑定 $base_val——去掉 --json 执行"; exit 0; fi
+  case "$base_val" in
+    none) printf 'epic: none\n' > "$CTX/CURRENT" ;;
+    *)
+      [ -d "$CTX/epics/$base_val" ] || fail "基础绑定 epic 不存在: epics/$base_val（可能已退役/改名）" '核对后手工改写 CURRENT'
+      printf 'epic: %s\n' "$base_val" > "$CTX/CURRENT"
+      ;;
+  esac
+  echo "OK: 已恢复基础绑定 $base_val（临时态清除）"
+  exit 0
 fi
 
 # ---- --current-only：只切指针 ----
 if [ "$CURRENT_ONLY" -eq 1 ]; then
   [ -d "$EPIC_DIR" ] || fail "epic 不存在，去掉 --current-only 走完整挂载（--doc <docs/...md>）" "epic 不存在: $EPIC"
-  if [ "$old_epic" = "$EPIC" ]; then
+  if [ "$old_epic" = "$EPIC" ] && [ "$TEMP" -eq 0 ]; then
     if [ "$JSON" -eq 1 ]; then json_out OK info "已绑定 $EPIC（幂等无动作）"; else echo "OK: 已绑定 $EPIC，无动作"; fi
+    exit 0
+  fi
+  if [ "$TEMP" -eq 1 ]; then
+    grep -q '^base: ' "$CTX/CURRENT" 2>/dev/null \
+      && fail '已有临时绑定未恢复——禁止嵌套临时绑定' '先 toolbox run mount-init --restore 恢复基础绑定'
+    base_val="${old_epic:-none}"
+    case "$base_val" in '(未绑定)'|'') base_val='none' ;; esac
+    if [ "$DRY" -eq 1 ]; then
+      [ "$JSON" -eq 1 ] && { json_out OK info "[dry-run] 临时绑定: CURRENT → epic: $EPIC（base: $base_val）"; exit 0; }
+      echo "[dry-run] CURRENT → epic: $EPIC（base: $base_val 记入 CURRENT 第二行）"
+      exit 0
+    fi
+    if [ "$JSON" -eq 1 ]; then json_out OK info "预检通过: 临时绑定 $EPIC（基础: $base_val）——去掉 --json 执行"; exit 0; fi
+    { printf 'epic: %s\n' "$EPIC"; printf 'base: %s\n' "$base_val"; } > "$CTX/CURRENT"
+    echo "OK: 临时绑定 $EPIC（基础: $base_val）——收尾后 toolbox run mount-init --restore 恢复"
     exit 0
   fi
   if [ "$DRY" -eq 1 ]; then

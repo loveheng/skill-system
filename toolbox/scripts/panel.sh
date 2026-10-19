@@ -29,13 +29,14 @@ panel —— dev-loop §6 面板数据源（只读不写；事实脚本出、判
 
 数据档（裸跑 = 事实块；建议动作不由脚本产出——AI 按判读协议结合语境自产）:
   裸跑            dev 事实块 ~5 行: 绑定/断点 ｜ 任务活动表 ｜ 计数(待决/待办/待归并) ｜ 并行行(多任务交错活跃时条件出现，附样板 worktree 建议命令——仅建议不执行) ｜ 债面(U/D/P 粗计数+体检时效) → dev-loop ::help 数据源
-  --board         逐任务一行: <epic> ｜ 最后活动 <日期> ｜ 断点（▶=当前绑定；misc 标常驻；按最后活动降序；archive 不列）→ ::board 数据源
+  --board         逐任务一行: <epic> ｜ 最后活动 <日期> ｜ 断点（▶=当前绑定；misc 标常驻；memory 头部 state: maintenance 标 (维护)；按最后活动降序）→ ::board 数据源
   --deep <epic>   单任务深挖: 断点/memory 行数/最后活动/devlog 尾 3 行/本节 todos+台账计数 → 追问时按需取数
   --debt          债面明细: UNCERTAIN/DEGRADE/PATCH 标记数与 top 文件 + 白名单行数 + 上次体检时效 → 债追问时按需取数
   --mounts        挂载对照 + docs 候选: epic 挂载表 ｜ docs 清单(status/最后活动,▶已挂标记,deprecated 墓碑不列) → ::bind 候选列表数据源
   --json          一行 JSON 契约结论（当前档位内容的压缩 message）
 
 数据口径: 最后活动 = git log 最近提交日期（context/ 未纳 git 显示 ?）；计数 = tail/grep 现实推导，零缓存。
+维护态口径: epic 永驻 context/epics/（不搬目录）；`::done`/`devlog close` 在 memory 头部写 `state: maintenance`，board/状态行标 (维护)；重开 `devlog reopen` 清标记。
 ctx 口径: 上下文利用率探测（同池 ctx-ratio --brief，fail-open n/a）：总量%=峰值输入侧/窗口上限，RCR=近窗估算/衰减层，常驻%=元系统常驻占用（仅展示不触发）——⚠ 命中仅展示，触发归并走 dev-loop §4。
 债面口径: git 仓内 git grep 标记行（排除 *.md 与系统仓工具池自匹配），非 git 仓 grep 兜底（排除 .md/构建目录）；粗计数不含白名单过滤与形状扫描——权威数字以 uscan/dscan/ascan --md 为准。
 定位: ::status（ctx-status）仍是单 epic 点查工具；本工具是 dev 域 ::help/::board 的数据源。
@@ -61,6 +62,11 @@ last_date() { # $1=仓库内相对路径
   printf '%s' "${d:-?}"
 }
 epic_date() { last_date "context/epics/$1"; }
+
+# 维护态探测：memory 头部 YAML `state: maintenance`（::done 收尾标记，dev-log close 机械件写入）
+state_of() { # $1=epic → 输出 maintenance 或空
+  sed -n '2,12{s/^state:[[:space:]]*//p}' "$ROOT/context/epics/$1/memory.md" 2>/dev/null | head -n 1
+}
 
 bp_of() { # $1=epic → 该 epic 自己的断点行内容
   local b
@@ -184,7 +190,7 @@ epics_sorted() {
 }
 
 scan_fact() {
-  local ctx epic bp pc tdg tdd d1 d2 les line d e mark tasks dir par par_n newest ts PAR
+  local ctx epic bp pc tdg tdd d1 d2 les line d e mark tasks dir par par_n newest ts PAR bpsrc TEMPNOTE base_epic
   ctx="$ROOT/context"
   if [ ! -d "$ctx" ]; then
     MSG="ℹ 无 context/ 目录（${ctx}）——面板跳过（新项目先走 dev-init 初始化）"
@@ -192,12 +198,18 @@ scan_fact() {
   fi
   epic=$(sed -n 's/^epic:[[:space:]]*//p' "$ctx/CURRENT" 2>/dev/null | head -n 1)
   [ -z "$epic" ] && epic='(未绑定)'
-  bp=$(grep -h '^-[[:space:]]*\[断点\]' "$ctx/epics/$epic/memory.md" "$ctx/epics/misc/memory.md" 2>/dev/null | head -n 1 | sed 's/^- \[断点\][[:space:]]*//')
+  bpsrc="$ctx/epics/$epic"
+  [ "$(state_of "$epic")" = 'maintenance' ] && epic="${epic}(维护)"
+  # 临时绑定态（CURRENT 第二行 base:）→ 绑定行显式标注，防并行临时任务日志错位
+  base_epic=$(sed -n 's/^base:[[:space:]]*//p' "$ctx/CURRENT" 2>/dev/null | head -n 1)
+  TEMPNOTE=''
+  [ -n "$base_epic" ] && TEMPNOTE="（临时绑定，基础: $base_epic——完事 mount-init --restore）"
+  bp=$(grep -h '^-[[:space:]]*\[断点\]' "$bpsrc/memory.md" "$ctx/epics/misc/memory.md" 2>/dev/null | head -n 1 | sed 's/^- \[断点\][[:space:]]*//')
   [ -z "$bp" ] && bp='（缺失，应恒为 1 条）'
   tasks=$(epics_sorted | while read -r d e; do
     [ -n "$e" ] || continue
     mark=''
-    [ "$e" = "$epic" ] && mark='▶'
+    [ "$e" = "${epic%(维护)}" ] && mark='▶'
     [ "$e" = "misc" ] && mark="${mark}·常驻"
     printf '%s(%s)%s ' "$e" "$d" "$mark"
   done)
@@ -209,7 +221,7 @@ scan_fact() {
     [ -f "$df" ] || continue
     tdd=$((tdd + $(cnt_file "$df" '^- \[ \]')))
   done
-  d1=$(tail -n 20 "$ctx/epics/$epic/devlog.md" 2>/dev/null | grep -c '^- \[' || true)
+  d1=$(tail -n 20 "$bpsrc/devlog.md" 2>/dev/null | grep -c '^- \[' || true)
   if [ "$epic" = misc ]; then
     d2=0   # 绑定 epic 即 misc 时不重复计数（同一文件）
   else
@@ -218,12 +230,13 @@ scan_fact() {
   les=$(cnt_file "$ctx/lessons.md" '^- \[')
   debt_summary
   DEBT="${DEBT} ｜ ctx: $(ctx_brief)"
-  # 并行信号（零缓存，git 活动现场推导）：非 misc epic 中与最近活跃窗 ≤2 天的 ≥2 个 → 恢复须点名
+  # 并行信号（零缓存，git 活动现场推导）：非 misc 且非维护态 epic 中与最近活跃窗 ≤2 天的 ≥2 个 → 恢复须点名
   par=''; par_n=0; newest=0
   for dir in "$ctx"/epics/*/; do
     [ -d "$dir" ] || continue
     e=$(basename "$dir")
     [ "$e" = 'misc' ] && continue
+    [ "$(state_of "$e")" = 'maintenance' ] && continue   # 维护态不参与并行信号
     d=$(epic_date "$e")
     [ "$d" = '?' ] && continue
     ts=$(date -d "$d" +%s 2>/dev/null || date -j -f '%Y-%m-%d' "$d" +%s 2>/dev/null)
@@ -235,6 +248,7 @@ scan_fact() {
       [ -d "$dir" ] || continue
       e=$(basename "$dir")
       [ "$e" = 'misc' ] && continue
+      [ "$(state_of "$e")" = 'maintenance' ] && continue   # 维护态不参与并行信号
       d=$(epic_date "$e")
       [ "$d" = '?' ] && continue
       ts=$(date -d "$d" +%s 2>/dev/null || date -j -f '%Y-%m-%d' "$d" +%s 2>/dev/null)
@@ -246,7 +260,7 @@ scan_fact() {
   if [ "$par_n" -ge 2 ]; then
     PAR="\n并行: ${par%・} 近期交错活跃（≤2 天窗）——恢复请点名任务，CURRENT 仅最近绑定；代码写隔离建议: git worktree add ../$(basename "$ROOT")-${epic} -b ${epic}（仅建议不执行；worktree 的 context/ 是独立副本，记忆写入须回主仓防脑裂）"
   fi
-  MSG="绑定: ▶ ${epic}\n断点: ${bp}\n任务: ${tasks}｜ 计数: 待决 ${pc:-0} ｜ 待办 全局 ${tdg:-0}/域内 ${tdd} ｜ 待归并 devlog $((d1 + d2))/lessons ${les:-0}${PAR}\n${DEBT}"
+  MSG="绑定: ▶ ${epic}${TEMPNOTE}\n断点: ${bp}\n任务: ${tasks}｜ 计数: 待决 ${pc:-0} ｜ 待办 全局 ${tdg:-0}/域内 ${tdd} ｜ 待归并 devlog $((d1 + d2))/lessons ${les:-0}${PAR}\n${DEBT}"
   return 0
 }
 
@@ -264,6 +278,7 @@ scan_board() {
     [ "$e" = "$epic" ] && mark='▶ '
     disp="$e"
     [ "$e" = "misc" ] && disp="${e}(常驻)"
+    [ "$(state_of "$e")" = 'maintenance' ] && disp="${disp}(维护)"
     b=$(bp_of "$e")
     printf '%s%s ｜ 最后活动 %s ｜ 断点: %s\n' "$mark" "$disp" "$d" "$b"
   done)
@@ -373,6 +388,10 @@ EOF
   mkdir -p "$c/docs/architecture" "$c/docs/guide"
   printf -- '---\nstatus: active\nupdated: 2026-10-01\n---\n\n# demo 底子\n' > "$c/docs/architecture/demo.md"
   printf -- '---\nstatus: deprecated\nupdated: 2026-10-01\n---\n\n# 旧文档\n' > "$c/docs/guide/old.md"
+  # 维护态脚手架（board 标记 + 绑定状态显示用例）：epic 永驻 epics/，memory 头部 state 标记
+  mkdir -p "$c/context/epics/retired"
+  printf -- '---\ndev-loop: memory\nformat: v1\nepic: retired\ntotal-merged: 0\nlast-merge: none\nstate: maintenance\n---\n\n# retired\n\n## 断点\n- [断点] 已完结：首轮交付\n' > "$c/context/epics/retired/memory.md"
+  printf -- '- [2026-10-01] [变更]: r\n' > "$c/context/epics/retired/devlog.md"
   # 债面脚手架（三种标记各 1 处，供 git grep 粗计数与 --debt 明细用例）
   mkdir -p "$c/src"
   printf '# UNCERTAIN: 未实证的接口行为\n# DEGRADE: 猜测兜底\n# PATCH: 权宜实现\n' > "$c/src/app.py"
@@ -404,6 +423,22 @@ EOF
   printf '%s' "$out" | grep -qE '▶ demo ｜ 最后活动 (20[0-9]{2}-[0-9]{2}-[0-9]{2}|\?)' || { echo "self-test: board 绑定标记/日期错误: $out"; ok=0; }
   printf '%s' "$out" | grep -q 'misc(常驻)' || { echo "self-test: board misc 常驻标记错误: $out"; ok=0; }
   printf '%s' "$out" | grep -q '等待散修任务' || { echo "self-test: board 断点缺失: $out"; ok=0; }
+  printf '%s' "$out" | grep -q 'retired(维护)' || { echo "self-test: board 缺维护态标记: $out"; ok=0; }
+  # 用例 3b: 绑定维护态 epic → 绑定行标 (维护)，deep 取数正常
+  printf 'epic: retired\n' > "$c/context/CURRENT"
+  out=$(sh "$0" --root "$c" 2>&1)
+  printf '%s' "$out" | grep -q '绑定: ▶ retired(维护)' || { echo "self-test: 绑定行缺维护标记: $out"; ok=0; }
+  printf '%s' "$out" | grep -q '断点: 已完结：首轮交付' || { echo "self-test: 维护态断点未取到: $out"; ok=0; }
+  out=$(sh "$0" --root "$c" --deep retired 2>&1)
+  printf '%s' "$out" | grep -q 'devlog 尾 3' || { echo "self-test: deep 维护态取数失败: $out"; ok=0; }
+  printf '%s' "$out" | grep -q '\[变更\]: r' || { echo "self-test: deep 维护态 devlog 尾缺失: $out"; ok=0; }
+  printf 'epic: demo\n' > "$c/context/CURRENT"
+  # 用例 3c: 临时绑定态（CURRENT 第二行 base:）→ 绑定行显式标注，防并行临时任务日志错位
+  printf 'epic: misc\nbase: demo\n' > "$c/context/CURRENT"
+  out=$(sh "$0" --root "$c" 2>&1)
+  printf '%s' "$out" | grep -q '临时绑定，基础: demo' || { echo "self-test: 临时绑定态未标注: $out"; ok=0; }
+  printf '%s' "$out" | grep -q 'mount-init --restore' || { echo "self-test: 临时态提示缺恢复命令: $out"; ok=0; }
+  printf 'epic: demo\n' > "$c/context/CURRENT"
   # 用例 4: --deep demo
   out=$(sh "$0" --root "$c" --deep demo 2>&1)
   printf '%s' "$out" | grep -q 'devlog 尾 3' || { echo "self-test: deep 缺 devlog 尾: $out"; ok=0; }

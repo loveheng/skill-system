@@ -33,7 +33,7 @@ context-lint —— context/ 记忆体系 + skill 指针面机械校验（agent-
 
 检查面:
   数据面  context/CURRENT 格式与悬空；epics/* 头部字段与角色一致；断点行恰 1 条；
-          挂载行（epic memory.md 首部恰 1 条且路径存在、非 deprecated，misc 豁免——
+          挂载行（epic memory.md 首部恰 1 条且路径存在、非 deprecated，misc 豁免；允许「<docs/路径>（可选说明）」写法，无独立稿件须行内显式声明「无独立设计稿」——
           dev-loop §3 文档锚定）；
           devlog 待归并 >=5 与未归并 [SSOT 修正]；memory >150 行软上限；
           devlog 最近 [变更] 的同日 [验证] 账本缺口（dev-loop §7 第 12 项）；
@@ -123,7 +123,10 @@ lint_epic() { # lint_epic <epic目录(带尾斜杠)> <当前epic名|空> <epic�
   s=$(count '^- \[.*\[SSOT 修正\]' "$g")
   [ "$s" -gt 0 ] && add warn SSOT "epics/$name/devlog.md 有未归并 [SSOT 修正] $s 条（应立即归并）"
   if [ "$name" != misc ] && [ "$name" != "$cur" ]; then
-    [ -n "$(find "$g" -mtime +30 -print 2>/dev/null)" ] && add warn ORPHAN "epics/$name 疑似孤儿（devlog 30 天未动）——提示 @done 或确认搁置"
+    # 维护态 epic（state: maintenance）已收尾，长期不动是预期，不算孤儿
+    if [ "$(sed -n '2,12{s/^state:[[:space:]]*//p}' "${g%/devlog.md}/memory.md" 2>/dev/null | head -n 1)" != maintenance ]; then
+      [ -n "$(find "$g" -mtime +30 -print 2>/dev/null)" ] && add warn ORPHAN "epics/$name 疑似孤儿（devlog 30 天未动）——提示 @done 或确认搁置"
+    fi
   fi
   # [验证] 缺口（dev-loop §7 第 12 项机械化）：最近 3 条 [变更] 是否各有同日 [验证] 账本
   chg=$(grep '\[变更\]' "$g" 2>/dev/null | tail -n 3)
@@ -157,13 +160,19 @@ lint_mounts() { # 挂载行校验（dev-loop §3 文档锚定）：非 misc epic
     elif [ "$n" -gt 1 ]; then
       add error MOUNT "$e/memory.md 挂载行 $n 条（应恒 1 条，去重保留）"
     else
-      mp=$(sed -n 's/^-[[:space:]]*\[挂载\][[:space:]]*//p' "$m" 2>/dev/null | head -n 1)
+      ml=$(sed -n 's/^-[[:space:]]*\[挂载\][[:space:]]*//p' "$m" 2>/dev/null | head -n 1)
+      # 挂载行写法：- [挂载] <docs/路径>（可选说明）——仅对首个路径样 token 做存在性判定，
+      # 路径后紧跟的中文说明（含全角「（」）不参与判定；反引号包裹的路径先脱引号
+      mp=$(printf '%s' "$ml" | tr -d '\140' | grep -oE '[A-Za-z0-9_.][A-Za-z0-9_./-]*\.(md|dart|py|sh)' 2>/dev/null | head -n 1)
       case "$mp" in
         /*) tp=$mp ;;
-        *) tp="$ROOT/$mp" ;;
+        *) tp="$R/$mp" ;;   # 须用解析后的 $R（含 pwd 回退）——用原始 $ROOT 会在无 --root 时拼出 /docs/... 绝对路径假报失效（回归 2026-10-19）
       esac
       if [ -z "$mp" ]; then
-        add error MOUNT "$e/memory.md 挂载行缺文档路径"
+        case "$ml" in
+          *无独立设计稿*|*无挂载文档*|*无需挂载*) : ;;   # 显式声明无稿：按约定放行
+          *) add error MOUNT "$e/memory.md 挂载行缺文档路径（须为「- [挂载] <docs/路径>（可选说明）」；确无独立稿件须在行内显式声明「无独立设计稿」）" ;;
+        esac
       elif [ ! -f "$tp" ]; then
         add warn MOUNT "$e/memory.md 挂载失效：$mp 不存在（修复路径或经确认迁移）"
       else
@@ -248,8 +257,10 @@ lint_lessons() {
   f=$CTX/lessons.md
   [ -f "$f" ] || return 0
   check_hdr "$f" 'dev-loop: lessons' 'epic: global' yes
-  p=$(count '^- \[' "$f")
-  [ "$p" -ge 5 ] && add warn MERGE "lessons.md 待归并 $p 条（>=5 触发归并）"
+  # 归并口径 = 「## 待归并」节内条目数；正文四段式条目（- [模块] ...）是终态、不计积压。
+  # 旧口径 count '^- \[' 把正文条目当待归并——归并后条目进正文各节，恒 >=5 永误报（2026-10-19 修）
+  p=$(awk '/^## 待归并/{inb=1;next} /^## /{inb=0} inb && /^- \[/{c++} END{print c+0}' "$f" 2>/dev/null)
+  [ "${p:-0}" -ge 5 ] && add warn MERGE "lessons.md 待归并 $p 条（>=5 触发归并）"
   return 0
 }
 
@@ -277,7 +288,14 @@ lint_data() {
   cur=''
   if [ -f "$CTX/CURRENT" ]; then
     n=$(grep -c . "$CTX/CURRENT" || true)
-    [ "$n" -le 1 ] || add error CURRENT "CURRENT 多于一行（应恒为 epic: <名> 单行）"
+    b=$(sed -n 's/^base:[[:space:]]*//p' "$CTX/CURRENT" 2>/dev/null | head -n 1)
+    if [ -n "$b" ]; then
+      # 临时绑定态（mount-init --temp）：两行 epic: + base: 合法
+      [ "$n" -le 2 ] || add error CURRENT "临时绑定态 CURRENT 多于两行（应恒为 epic: + base:）"
+      [ "$(grep -c '^base: ' "$CTX/CURRENT")" -eq 1 ] || add error CURRENT "base 行异常（临时态应恰 1 行）"
+    else
+      [ "$n" -le 1 ] || add error CURRENT "CURRENT 多于一行（应恒为 epic: <名> 单行）"
+    fi
     v=$(sed -n 's/^epic:[[:space:]]*//p' "$CTX/CURRENT" 2>/dev/null | head -n 1)
     if [ -z "$v" ]; then
       add error CURRENT "CURRENT 内容非 epic: <名> 格式（或为空文件）"
@@ -331,7 +349,7 @@ resolve_skill() { # resolve_skill <引用名> → 目标 SKILL.md 路径（遍�
 lint_pointers() {
   # 技能根两级：项目根 <repo>/.agents/skills（project-local，优先） + 全局技能根（--skills-root 覆盖）
   SKILL_ROOTS=''
-  [ -n "$ROOT" ] && [ -d "$ROOT/.agents/skills" ] && SKILL_ROOTS="$ROOT/.agents/skills"
+  [ -d "$R/.agents/skills" ] && SKILL_ROOTS="$R/.agents/skills"   # 同用解析后的 $R（无 --root 时不得漏掉 project-local 技能根）
   gsr=${SKILLS_ROOT:-$HOME/.agents/skills}
   [ -d "$gsr" ] && SKILL_ROOTS="$SKILL_ROOTS $gsr"
   [ -n "$SKILL_ROOTS" ] || return 0
@@ -395,6 +413,14 @@ run_all() {
 
 self_test() {
   SELF=$0
+  # SELF 绝对化：本自测含 cd 沙箱用例，相对 $0（如 `sh toolbox/scripts/context-lint.sh`）在沙箱内失路径
+  case "$SELF" in
+    /*) : ;;
+    *)
+      _d=$(cd "$(dirname "$SELF")" && pwd) || return 2
+      SELF="$_d/$(basename "$SELF")"
+      ;;
+  esac
   T=$(mktemp -d 2>/dev/null) || { echo 'self-test: mktemp 失败'; return 2; }
   trap 'rm -rf "$T"' EXIT INT TERM
   fail=0
@@ -422,6 +448,28 @@ last-merge: none
 EOF
   mkdir -p "$T/clean/docs/demo"
   printf -- '---\nstatus: active\nupdated: 2026-09-19\n---\n\n# demo spec\n' > "$T/clean/docs/demo/spec.md"
+  # 维护态 epic 夹具（state: maintenance + devlog 60 天未动）——孤儿检测应豁免
+  mkdir -p "$c/epics/old-maint"
+  cat > "$c/epics/old-maint/memory.md" <<'EOF'
+---
+dev-loop: memory
+format: v1
+epic: old-maint
+total-merged: 1
+last-merge: 2026-09-19
+state: maintenance
+---
+
+# old-maint
+
+- [挂载] docs/demo/old-maint.md
+
+## 断点
+- [断点] 已完结：首轮交付
+EOF
+  printf -- '---\nstatus: active\nupdated: 2026-09-19\n---\n\n# old-maint\n' > "$T/clean/docs/demo/old-maint.md"
+  printf -- '---\ndev-loop: devlog\nformat: v1\nepic: old-maint\ntotal-merged: 1\nlast-merge: 2026-09-19\n---\n' > "$c/epics/old-maint/devlog.md"
+  touch -d '60 days ago' "$c/epics/old-maint/devlog.md"
   cat > "$c/epics/demo/devlog.md" <<'EOF'
 ---
 dev-loop: devlog
@@ -602,12 +650,40 @@ EOF
   else
     echo 'fail: 合规样本应通过却报违规:'; sed 's/^/  /' "$T/o1"; fail=1
   fi
+  # ---------- 断言：无 --root 时 pwd 回退不得假报挂载失效（$ROOT/$R 分裂回归 2026-10-19） ----------
+  rc=0
+  (cd "$T/clean" && sh "$SELF" --skills-root "$T/emptyskills" >"$T/o1b" 2>&1) || rc=$?
+  if [ "$rc" -eq 0 ] && ! grep -q '挂载失效' "$T/o1b"; then
+    echo 'pass: 无 --root（pwd 回退）挂载检查不假报'
+  else
+    echo 'fail: 无 --root 时挂载检查假报失效（$ROOT/$R 分裂）:'; sed 's/^/  /' "$T/o1b"; fail=1
+  fi
   rc=0; sh "$SELF" --json --root "$T/clean" --skills-root "$T/emptyskills" >"$T/o2" 2>&1 || rc=$?
   if [ "$rc" -eq 0 ] && grep -q '"status":"OK"' "$T/o2"; then
     echo 'pass: 合规样本 --json OK（exit 0）'
   else
     echo 'fail: 合规样本 --json 应 OK:'; sed 's/^/  /' "$T/o2"; fail=1
   fi
+  # ---------- 断言：维护态 epic 不报孤儿（devlog 60 天未动但 state: maintenance） ----------
+  if grep -q '疑似孤儿' "$T/o1"; then
+    echo 'fail: 维护态 epic 被误报孤儿:'; grep '疑似孤儿' "$T/o1" | sed 's/^/  /'; fail=1
+  else
+    echo 'pass: 维护态 epic 豁免孤儿检测'
+  fi
+  # ---------- 断言：临时绑定态两行 CURRENT 合法；三行报错 ----------
+  printf 'epic: demo\nbase: misc\n' > "$c/CURRENT"
+  rc=0; sh "$SELF" --root "$T/clean" --skills-root "$T/emptyskills" >"$T/o1c" 2>&1 || rc=$?
+  if [ "$rc" -eq 0 ] && ! grep -q 'CURRENT' "$T/o1c"; then
+    echo 'pass: 临时绑定态两行 CURRENT 通过'
+  else
+    echo 'fail: 临时绑定态 CURRENT 被误报:'; grep 'CURRENT' "$T/o1c" | sed 's/^/  /'; fail=1
+  fi
+  printf 'epic: demo\nbase: misc\n多出来的行\n' > "$c/CURRENT"
+  sh "$SELF" --root "$T/clean" --skills-root "$T/emptyskills" >"$T/o1d" 2>&1
+  grep -q '临时绑定态 CURRENT 多于两行' "$T/o1d" \
+    && echo 'pass: 临时态三行 CURRENT 被报错' \
+    || { echo 'fail: 临时态三行未报错:'; sed 's/^/  /' "$T/o1d"; fail=1; }
+  printf 'epic: demo\n' > "$c/CURRENT"
   rc=0; sh "$SELF" --root "$T/bad" --skills-root "$T/emptyskills" >"$T/o3" 2>&1 || rc=$?
   if [ "$rc" -eq 1 ]; then
     echo 'pass: 坏样本被拒（exit 1）'
