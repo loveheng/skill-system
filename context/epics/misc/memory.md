@@ -31,6 +31,13 @@ last-merge: 2026-10-20
 - [2026-10-17] safe-patcher 写门禁两轮迭代：hook 基础设施故障 fail-open 放行、语法器超时 fail-closed、拦截面收敛 CODE_EXTS；降级台账试装后拆除（坏块拦截已在写入口完成，台账无消费场景），self-test 11/11。
 - [2026-10-19] 决策留档与生命周期改造：dlog 工具（决策条目→挂载文档「决策日志」/misc-decisions.md 双通道）、维护态生命周期（devlog close/reopen/clear，目录不搬）、临时绑定（--temp/--restore base 行）、context-lint CURRENT 双态校验与规约同步。
 - [2026-10-20] ::audit 补记（架构自洽评估）：两处张力待收敛——①dev-loop 薄指针与一行口径复述边界模糊（REFERENCE 仅 92 行，细则实居 SKILL）②toolbox 规范 SSOT 双声明（SKILL.md vs mgr 内嵌 spec，上位关系未写明）；归并阈值失灵已由本轮归并修复（20 条积压）。
+- [2026-10-20] 过程信息保留评估落地：memo-collector §1 触发点 0（窗口内暂记 ≥3 条当轮批量落盘）+ dev-loop REFERENCE §4 过程流水保留口径（非决策类原文不进工作区，历史走 git log）。
+- [2026-10-20] goodhub 三件套底板化：lessons 四段式+归并门禁升舱全局 SSOT（dev-loop SKILL/REFERENCE 同步）；dev-init templates/ 五件建成（README 提炼协议/workflow/index/docs/standards）；scaffold 三模板改 mk_tmpl 搬运接线（standards 不自动发，禁预写空泛条目）。
+- [2026-10-20] ctx-ratio v2 排期收口：③ 宿主 compact 建议实装（四态提示，self-test 断言）；① proxy 缓存感知挂起（无配置无样本）；② devlog 重叠度暂缓（无实证痛点）。
+- [2026-10-20] dev-init 演练整改包全清 + P5/P6：实测 FAIL 口径（失败=取证事实禁虚构）与副作用面审查（§1 第3步）；基线→定性→白名单顺序拼合；[docs skill] 硬卡点独立适用新建情形；ctx-audit ❓ 四项标 dev-init 步骤号；skill-verify 增 .skill-verify-keep 语义确认保留通道（登记改判✓不计⚠）；description 250↔550 口径互指；memo-collector v1-v3 迁移史压缩为版本注记。
+- [2026-10-20] scaffold 两修一扩：横幅 dry-run 误标根因=DRY:+ 非空串误展开改 if 判断；todos 模板 v2→v3（done.md 维持 v2）；docs 最小集恒定产出（README 结构索引 + project/index.md + coding-standards.md 骨架，<repo>-docs skill 同转恒定）。
+- [2026-10-20] 体系审计三小项：#10 持久日志路径约定进 dev-init §1 第7步+README（dtrig/报告 /tmp 易失）；#11 panel 计数旁标 long待重评/once逾期（grep -c 计数防 0\n0 坑）；#12 跨项目层方案 A——memo-collector 三级落点（跨项目→todos add --root ~/.agents，misc 节行尾 proj 标注 + §5 抓取口径）。
+- [2026-10-20] 两工具入全局池：bugpack（diff+日志+环境→8 形状密钥脱敏硬门槛→三段式报障 manual §1.5；perl \x27 修引号炸类、--json 模式抑制正文、计数全形状谱；自测样本拼接构造过 check 密钥扫描）；adherence-scan（账本面遥测三指标：变更验证配对率健康线 90%/归并超阈 epic/once-long 时效；诚实边界写死——聊天面行为不测不造假归 ::audit）。
 
 ## 断点
-- [断点] 下一步：goodhub 仓执行移交件（用户侧）；ctx-ratio v2：③ 已落地，① 挂起待 proxy 样本，② 暂缓
+- [断点] 下一步：等待散修任务
