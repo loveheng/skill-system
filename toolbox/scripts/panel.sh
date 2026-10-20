@@ -222,6 +222,23 @@ scan_fact() {
     tdd=$((tdd + $(cnt_file "$df" '^- \[ \]')))
   done
   d1=$(tail -n 20 "$bpsrc/devlog.md" 2>/dev/null | grep -c '^- \[' || true)
+  # 待办时效（#11）：[long] 待重评条数 + [once] 超事件窗口（>30 天，memo-collector §1 口径）逾期条数；零值静默
+  tlong=0; tovr=0
+  todofiles="$ctx/todos.md"
+  for df in "$ctx"/epics/*/todos.md; do [ -f "$df" ] && todofiles="$todofiles $df"; done
+  for tf in $todofiles; do
+    c=$(grep -cE '^- \[ \].*\[long\]' "$tf" 2>/dev/null); [ -n "$c" ] || c=0
+    tlong=$((tlong + c))
+    while IFS= read -r d; do
+      [ -n "$d" ] || continue
+      ts=$(date -d "$d" +%s 2>/dev/null) || continue
+      [ $(( ($(date +%s) - ts) / 86400 )) -gt 30 ] && tovr=$((tovr + 1))
+    done <<EOF2
+$(grep -E '^- \[ \].*\[once\]' "$tf" 2>/dev/null | grep -oE '\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]' | tr -d '[]')
+EOF2
+  done
+  TAGE=''
+  [ "$tlong" -gt 0 ] || [ "$tovr" -gt 0 ] && TAGE=" ｜ 时效: long待重评 ${tlong}/once逾期 ${tovr}"
   if [ "$epic" = misc ]; then
     d2=0   # 绑定 epic 即 misc 时不重复计数（同一文件）
   else
@@ -260,7 +277,7 @@ scan_fact() {
   if [ "$par_n" -ge 2 ]; then
     PAR="\n并行: ${par%・} 近期交错活跃（≤2 天窗）——恢复请点名任务，CURRENT 仅最近绑定；代码写隔离建议: git worktree add ../$(basename "$ROOT")-${epic} -b ${epic}（仅建议不执行；worktree 的 context/ 是独立副本，记忆写入须回主仓防脑裂）"
   fi
-  MSG="绑定: ▶ ${epic}${TEMPNOTE}\n断点: ${bp}\n任务: ${tasks}｜ 计数: 待决 ${pc:-0} ｜ 待办 全局 ${tdg:-0}/域内 ${tdd} ｜ 待归并 devlog $((d1 + d2))/lessons ${les:-0}${PAR}\n${DEBT}"
+  MSG="绑定: ▶ ${epic}${TEMPNOTE}\n断点: ${bp}\n任务: ${tasks}｜ 计数: 待决 ${pc:-0} ｜ 待办 全局 ${tdg:-0}/域内 ${tdd} ｜ 待归并 devlog $((d1 + d2))/lessons ${les:-0}${TAGE}${PAR}\n${DEBT}"
   return 0
 }
 
@@ -382,7 +399,7 @@ EOF
   printf -- '- [2026-10-01] [变更]: w\n' > "$c/context/epics/work/devlog.md"
   printf -- '- [模块] x ➔ y ➔ z\n' > "$c/context/lessons.md"
   printf -- '- [ ] [2026-10-01] D1 问题一\n- [ ] [2026-10-01] D2 问题二\n' > "$c/context/pending-confirm.md"
-  printf '# 待办\n\n## misc\n\n- [ ] [2026-10-01] (文档) C\n- [ ] [2026-10-01] (风险) R\n' > "$c/context/todos.md"
+  printf '# 待办\n\n## misc\n\n- [ ] [2026-10-01] (文档) C\n- [ ] [2026-10-01] (风险) R\n- [ ] [2026-09-01] (风险) [long] L\n- [ ] [2026-08-01] (功能) [once] O\n' > "$c/context/todos.md"
   printf -- '---\nmemo: todos\nformat: v3\nepic: demo\n---\n\n# demo · 域内待办\n- [ ] [2026-10-01] (功能) A\n- [ ] [2026-10-01] (修复) B\n' > "$c/context/epics/demo/todos.md"
   # docs 候选脚手架（demo 可挂，old 废弃不列）
   mkdir -p "$c/docs/architecture" "$c/docs/guide"
@@ -407,7 +424,8 @@ EOF
   printf '%s' "$out" | grep -q 'demo(' || { echo "self-test: 任务表缺 demo: $out"; ok=0; }
   printf '%s' "$out" | grep -q 'misc(.*常驻' || { echo "self-test: 任务表 misc 未标常驻: $out"; ok=0; }
   printf '%s' "$out" | grep -q '待决 2' || { echo "self-test: 待决计数错误: $out"; ok=0; }
-  printf '%s' "$out" | grep -q '待办 全局 2/域内 2' || { echo "self-test: 待办计数错误: $out"; ok=0; }
+  printf '%s' "$out" | grep -q '待办 全局 4/域内 2' || { echo "self-test: 待办计数错误: $out"; ok=0; }
+  printf '%s' "$out" | grep -q 'long待重评 1/once逾期 1' || { echo "self-test: 待办时效标注错误: $out"; ok=0; }
   printf '%s' "$out" | grep -q '并行: demo・work' || { echo "self-test: 并行信号缺失: $out"; ok=0; }
   printf '%s' "$out" | grep -q 'git worktree add' || { echo "self-test: 并行行缺 worktree 建议: $out"; ok=0; }
   # 用例 2b: 单活跃 epic → 并行行不出现（防常驻噪音）

@@ -5,6 +5,9 @@
 #   命令锚点（围栏块内命令首 token → ./wrapper 存在性或 PATH 可寻；内联 span 仅认 ./wrapper 形态）
 #   符号锚点（反引号内 com.foo.Bar 形 FQN 且末段类名大写 → 全仓代码 grep 命中）
 # 定位：机械半边自动化；语义核实（锚点该不该存在/命令含义/接口行为）仍归 AI 与人。
+# 语义确认保留：仓库根 `.skill-verify-keep`（每行一个锚点串，# 注释）——AI/人核实为
+# 语义正确的误报（如符号锚点被当路径误判）后逐条登记；命中行改判 ✓（语义保留），
+# 不再计入 ⚠ 与退出码。修复后删行恢复监控（对齐 ai-sideeffect-guard §3 白名单口径）。
 # 精度优先：判不准的一律不报（宁漏报不误报），⩾ 误报会摧毁机械校验的可信度。
 #
 # toolbox-script
@@ -130,9 +133,23 @@ def check_fqn(fqn, index):
     return False
 
 
+def load_keep(root):
+    """仓库根 .skill-verify-keep：每行一个锚点串（# 注释），语义确认保留的误报锚点。"""
+    kp = os.path.join(root, ".skill-verify-keep")
+    keep = set()
+    if os.path.isfile(kp):
+        with open(kp, encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if s and not s.startswith("#"):
+                    keep.add(s)
+    return keep
+
+
 def verify(root, only=None):
     """返回 (rows, stats, exit 码)；rows=[(skill 名, [(ok, 类型, 锚点, 行号, 备注)])]。"""
-    rows, stats = [], {"路径": [0, 0], "命令": [0, 0], "符号": [0, 0]}
+    rows, stats = [], {"路径": [0, 0], "命令": [0, 0], "符号": [0, 0], "保留": [0, 0]}
+    keep = load_keep(root)
     skills = list(iter_skill_files(root, only))
     if not skills:
         return rows, stats, 1
@@ -145,6 +162,10 @@ def verify(root, only=None):
                 continue
             seen.add(a)
             ok = check_path(root, a)
+            if not ok and a in keep:
+                stats["保留"][0] += 1
+                srows.append((True, "路径", a, ln, "语义确认保留"))
+                continue
             stats["路径"][0 if ok else 1] += 1
             srows.append((ok, "路径", a, ln, ""))
         for a, ln in cmds:
@@ -152,6 +173,10 @@ def verify(root, only=None):
                 continue
             seen.add(a)
             ok = check_cmd(root, a)
+            if not ok and a in keep:
+                stats["保留"][0] += 1
+                srows.append((True, "命令", a, ln, "语义确认保留"))
+                continue
             stats["命令"][0 if ok else 1] += 1
             srows.append((ok, "命令", a, ln, ""))
         if fqns and index is None:
@@ -161,6 +186,10 @@ def verify(root, only=None):
                 continue
             seen.add(a)
             ok = check_fqn(a, index or [])
+            if not ok and a in keep:
+                stats["保留"][0] += 1
+                srows.append((True, "符号", a, ln, "语义确认保留"))
+                continue
             stats["符号"][0 if ok else 1] += 1
             srows.append((ok, "符号", a, ln, ""))
         rows.append((name, srows))
@@ -181,10 +210,11 @@ def render(root, rows, stats):
         okcnt = len(srows) - len(warn)
         out.append("- ✓ %d 项命中（略）" % okcnt if okcnt else "- （无 ✓ 项）")
         out.append("")
-    out.append("小结: 路径 %d✓/%d⚠ ｜ 命令 %d✓/%d⚠ ｜ 符号 %d✓/%d⚠" %
+    out.append("小结: 路径 %d✓/%d⚠ ｜ 命令 %d✓/%d⚠ ｜ 符号 %d✓/%d⚠ ｜ 语义保留 %d" %
                (stats["路径"][0], stats["路径"][1], stats["命令"][0], stats["命令"][1],
-                stats["符号"][0], stats["符号"][1]))
+                stats["符号"][0], stats["符号"][1], stats["保留"][0]))
     out.append("> 机械半边结论——语义核实仍归 AI 与人（dev-init §1.5 第 1 项）")
+    out.append("> 语义确认的误报登记 `.skill-verify-keep`（每行锚点串；修复后删行恢复监控）")
     return "\n".join(out) + "\n"
 
 
@@ -204,7 +234,8 @@ def main():
 用法: skill-verify [--root <项目根>] [--skill <名>] [--md <文件>] [--json] [--self-test] [--help]
 
 裸跑 = 全量校验并输出明细（--md 可同时落盘）；--json = 单行契约结论。
-退出码: 0=机械锚点全命中 1=存在 ⚠ 锚点（或无 project-local skill）2=自身故障
+语义确认保留：核实为语义正确的误报锚点，登记仓库根 `.skill-verify-keep`（每行一个锚点串，# 注释）——命中行改判 ✓ 不计退出码；修复后删行恢复监控。
+退出码: 0=机械锚点全命中（含语义保留） 1=存在 ⚠ 锚点（或无 project-local skill）2=自身故障
 """)
         return 0
 
@@ -243,6 +274,19 @@ def main():
             else:
                 print("fail: 正例判定漂移 flat=%s rc=%s" % (flat, rc))
                 ok = False
+            # 语义确认保留通道：登记 docs/gone.md 后改判 ✓；未登记的 ghost 命令 ⚠ 不受影响，rc 保持 1
+            with open(os.path.join(tmp, ".skill-verify-keep"), "w") as f:
+                f.write("# 已核实的误报\ndocs/gone.md\n")
+            rows2, stats2, rc2 = verify(tmp)
+            flat2 = {r[2]: (r[0], r[4]) for _, sr in rows2 for r in sr}
+            if rc2 == 1 and flat2.get("docs/gone.md") == (True, "语义确认保留") \
+                    and stats2["保留"][0] == 1 \
+                    and flat2.get("sver-ghost-cmd") == (False, "") \
+                    and stats2["路径"][1] == 0 and stats2["命令"][1] == 1:
+                print("ok: 语义保留（登记行改判 ✓ 不计 ⚠，未登记 ⚠ 照常计入 rc）")
+            else:
+                print("fail: 语义保留通道漂移 flat2=%s rc2=%s" % (flat2, rc2))
+                ok = False
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
         tmp = tempfile.mkdtemp(prefix="sver-neg-")
@@ -280,7 +324,7 @@ def main():
         if args.md:
             print("[md] 报告已写入: %s" % args.md)
     if rc == 1 and rows:
-        print("[remedy] ⚠ 锚点当场修指针或确认语义后保留；同卡点两轮修不动按 dev-loop 护栏 3 熔断")
+        print("[remedy] ⚠ 锚点当场修指针；核实为语义正确的误报 → 登记 .skill-verify-keep（每行锚点串，修复后删行）；同卡点两轮修不动按 dev-loop 护栏 3 熔断")
     if not rows:
         print("[remedy] 未发现 project-local skill（<root>/.agents/skills/*/SKILL.md）——dev-init §1 第 4 步先建")
     if args.json:

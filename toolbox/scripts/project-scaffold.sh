@@ -37,10 +37,10 @@ project-scaffold —— 项目 skill 体系骨架初始化（幂等）
   .agents/skills/<repo>-workflow/SKILL.md  通用骨架：只出节位与指针，事实位「待补」（维护协议内聚）；
                                       读码纪律三段式已预填通用正文（项目只补实证锚点）
   .agents/skills/<repo>-index/SKILL.md     通用骨架：规约指针 + 索引数据文件位「待补」
-  .agents/skills/<repo>-docs/SKILL.md 仅当存在 docs/ 时创建（数据位待补，规范指针回 docs-spec）；
+  .agents/skills/<repo>-docs/SKILL.md 恒定创建（scaffold 恒产出 docs/ 最小集，见下）；
                                       文档评估方法论已预填通用正文（项目只补实证锚点）
-  docs/project/index.md               仅当存在 docs/ 时创建（索引数据文件表头骨架，frontmatter status: draft）；
-  无 docs/ 不生成空骨架——初始域结构按项目类型人工生成（dev-init §1 第 5 步）
+  docs/ 最小集恒定创建：README.md 结构索引 + project/index.md（索引数据表头，frontmatter status: draft）+ project/coding-standards.md（写法规范骨架，条款随代码提炼增量长，禁预写空泛条目）；
+  其余域（architecture/ 等）仍按项目类型人工生成（dev-init §1 第 5 步）
   scripts/agent-tools/                调用 toolbox init --project（toolbox 可用时）
 
 不做（骨架已生成，内容必须人工取证后填入，脚本只列清单）:
@@ -175,7 +175,7 @@ mk() {
   CREATED=$((CREATED + 1))
 }
 
-echo "==> 项目根: $ROOT${DRY:+（dry-run，不落盘）}"
+if [ "$DRY" -eq 1 ]; then echo "==> 项目根: $ROOT（dry-run，不落盘）"; else echo "==> 项目根: $ROOT"; fi
 
 mk 'context/CURRENT' <<'EOF'
 epic: misc
@@ -239,7 +239,7 @@ EOF
 mk 'context/todos.md' <<'EOF'
 ---
 memo: todos
-format: v2
+format: v3
 ---
 
 # 待办列表
@@ -327,14 +327,23 @@ else
   CREATED=$((CREATED + 1))
 fi
 
-if [ -d "$ROOT/docs" ]; then
-  mk_tmpl ".agents/skills/$REPO-docs/SKILL.md" docs.template.md
-else
-  echo '  skip  docs 数据 skill（项目无 docs/，按 dev-init §1 第 5 步不留空位）'
-fi
+mk_tmpl ".agents/skills/$REPO-docs/SKILL.md" docs.template.md
 
-if [ -d "$ROOT/docs" ]; then
-  mk "docs/project/index.md" <<EOF
+mk "docs/README.md" <<EOF
+---
+status: active
+updated: $(date +%F)
+---
+
+# docs · 结构索引
+
+| 域 | 文档 | 一句话定位 |
+|---|---|---|
+| project/ | [index](project/index.md) | 功能落点索引数据（规约见 $REPO-index skill） |
+| project/ | [coding-standards](project/coding-standards.md) | 写法规范（条款随代码提炼增量长） |
+EOF
+
+mk "docs/project/index.md" <<EOF
 ---
 status: draft
 updated: $(date +%F)
@@ -356,7 +365,17 @@ updated: $(date +%F)
 |---|---|---|
 | _待补_ | | |
 EOF
-fi
+
+mk "docs/project/coding-standards.md" <<EOF
+---
+status: draft
+updated: $(date +%F)
+---
+
+# $REPO · 写法规范（骨架）
+
+> 条款随代码提炼增量长（提炼协议 = dev-init templates/README.md），**禁预写空泛条目**；机械红线由项目池护栏脚本（arch-guard 一类）镜像，文档立法、代码只镜像。
+EOF
 
 mk_tmpl ".agents/skills/$REPO-workflow/SKILL.md" workflow.template.md
 

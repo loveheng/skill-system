@@ -251,10 +251,10 @@ init_profile() {
   fi
 
   printf '%s\n' \
-    '❓ 实测：workflow 候选命令 ≥1 条跑通（fact-probe 底稿可先取证）' \
-    '❓ 索引归属表语义真实（≥1 行真实落点，非占位）' \
-    '❓ 冷启动演练：空白窗口开场全路径（panel 绑定卡 → 按断点恢复）' \
-    '❓ skill 正文无易漂移事实（事实指针化）'
+    '❓ 实测：workflow 候选命令 ≥1 条跑通（fact-probe 底稿可先取证）——口径 dev-init §1 第 3 步' \
+    '❓ 索引归属表语义真实（≥1 行真实落点，非占位）——口径 dev-init §1 第 4 步' \
+    '❓ 冷启动演练：空白窗口开场全路径（panel 绑定卡 → 按断点恢复）——口径 dev-init §1 第 9 步' \
+    '❓ skill 正文无易漂移事实（事实指针化）——口径 dev-init §2 + dev-loop REFERENCE §7 第 10 项'
   if [ "$INIT_WARN" -eq 1 ]; then
     echo '—— 机械项有 ⚠：修复后复跑；fail-open 项记待办不阻塞验收（dev-init §1 第 9 步） ——'
     if [ "$CL_RC" -ne 0 ]; then
