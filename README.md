@@ -1,7 +1,7 @@
 # skill-system
 ---
 status: active
-updated: 2026-10-07
+updated: 2026-10-20
 ---
 
 # AI 辅助开发 Skill 体系（设计意图与使用手册）
@@ -85,7 +85,7 @@ flowchart TD
 | AI 不确定点 / 隐患 | 实现是猜测/未实证/绕坑，可能埋隐患吗？ | 代码注释 `// UNCERTAIN:` → uncertainty-scan 收集 → 高危转 todos.md 风险类 | ai-sideeffect-guard §1 |
 | 静默降级 / 吞异常 | 失败被悄悄兜底（默认值/只记日志/吞异常）而非上报吗？ | 代码注释 `// DEGRADE:` → degrade-scan 收集（含形状扫描）→ 高危转 todos.md 风险类 | ai-sideeffect-guard §2 |
 | 写码残留 | 遗留调试语句 / 注释掉的代码 / 多余依赖吗？ | 代码文件原地 → code-hygiene-scan 扫描 → 直接清理 | ai-sideeffect-guard §2 |
-| 运行时行为 | 降级真触发了吗（几次/多频）？ | 日志行 `[DEGRADE] <场景>` → dtrig grep 聚合 → 高频场景评估 / 零触发降观察 | ai-sideeffect-guard §2 |
+| 运行时行为 | 降级真触发了吗（几次/多频）？ | 日志行 `[DEGRADE] <场景>` → dtrig grep 聚合 → 高频场景评估 / 零触发降观察（dtrig 默认 /tmp/logs、报告导 /tmp 均易失——项目产持久日志时按 dev-init §1 第 7 步把路径约定进项目 workflow skill） | ai-sideeffect-guard §2 |
 | 验证记录 | 声称完成的变更有实际验证命令+结果吗？ | devlog `[验证]` 行（收尾自动追加）→ ::audit 第 12 项差核对 | dev-loop §2 |
 | 完成后注意事项 | 有时效/事件绑定的事后注意/盯守事项吗？ | todos `(风险)` + `[once]`/`[long]` 标注 → once 完成自动转 done / long 每 ::done 强制重评 | memo-collector §0 |
 
@@ -255,7 +255,7 @@ flowchart TD
 - **巡检提醒**：会话开场 dev-loop §3 自动跑 `toolbox run-hooks bootstrap --quiet`（exit 0 静默）；`::audit` 第 11 项跑 `audit` 钩——FAIL 按 memo-collector 口径转 `风险` 待办；
 - **收编散放脚本**：评估复用价值 → 合规化补头部/help/json/自测 → `toolbox check` 入池 → 原址删除或改一行薄指针。
 
-**现状**（2026-09-25）：试点工具 `env-doctor`（本地运行时环境体检，trigger: bootstrap——会话开场自动体检）；audit 钩挂载 `context-lint`（context 数据面 + skill 指针面机械校验——::audit 的断点/头部/积压/尺寸/孤儿/待办格式与指针锚点存在性各机械项由其代跑，中文数字节号与裸 § 自引用仍人工抽查）；同日 spec 升 v1.1：语言双通道——shell（.sh）一等公民优先，python 兜底，`toolbox new` 默认出 sh 脚手架，shell 门禁含 shebang + `sh -n` 语法检查，manual 类不限时；历史散放脚本已收编 8 项入项目池 `scripts/agent-tools/`（index-lint、docs-index-lint、run-regression、run-e2e、run-native-smoke、run-native-rest、run-jvm-watch、deploy-cloud-run，长任务 --json=预检语义），项目根不再散放持久脚本；2026-09-25 新增 AI 副作用收集三工具入全局池（`uncertainty-scan`/`degrade-scan`/`code-hygiene-scan`，机制与用法速查见 ai-sideeffect-guard §1/§2）；同日扩展到执行期行为与完成后注意事项：`degrade-trigger`（运行时 [DEGRADE] 实际触发观测，grep 非 watch）、dev-loop V3.6 验证账本（Diff 收尾 [验证] 行 + ::audit 第 12 项验证缺口抽查）、memo-collector [once]/[long] 生命周期标注（context-lint TODO_RE 同步放宽），三者正文分别在 dev-loop §2 与 memo-collector §0；`install-hooks` 未安装（决策：不接 pre-commit/profile，按需人工触发）；脚本池与快速上手见 `~/.agents/toolbox/README.md`。
+**现状**（2026-09-25）：试点工具 `env-doctor`（本地运行时环境体检，trigger: bootstrap——会话开场自动体检）；audit 钩挂载 `context-lint`（context 数据面 + skill 指针面机械校验——::audit 的断点/头部/积压/尺寸/孤儿/待办格式与指针锚点存在性各机械项由其代跑，中文数字节号与裸 § 自引用仍人工抽查）；同日 spec 升 v1.1：语言双通道——shell（.sh）一等公民优先，python 兜底，`toolbox new` 默认出 sh 脚手架，shell 门禁含 shebang + `sh -n` 语法检查，manual 类不限时；2026-09-25 新增 AI 副作用收集三工具入全局池（`uncertainty-scan`/`degrade-scan`/`code-hygiene-scan`，机制与用法速查见 ai-sideeffect-guard §1/§2）；同日扩展到执行期行为与完成后注意事项：`degrade-trigger`（运行时 [DEGRADE] 实际触发观测，grep 非 watch）、dev-loop V3.6 验证账本（Diff 收尾 [验证] 行 + ::audit 第 12 项验证缺口抽查）、memo-collector [once]/[long] 生命周期标注（context-lint TODO_RE 同步放宽），三者正文分别在 dev-loop §2 与 memo-collector §0；`install-hooks` 未安装（决策：不接 pre-commit/profile，按需人工触发）；脚本池与快速上手见 `~/.agents/toolbox/README.md`。
 
 ### 3.5 环境硬约束（workflow 摘要）
 
@@ -282,8 +282,7 @@ flowchart TD
 - **窗口管理**：看到自动归并附注（⚙️）后，方便时重置会话；恢复成本 = 一句「继续」。
 - **健康节奏**：多机同步 / 分支切换 / 久别重开后跑 `::audit`；里程碑收尾、lessons 归并出新规则后跑 `::verify`（趁热验真）。
 - **体系复盘（月度或大里程碑后，在 `~/.agents` 跑一次）**：`::audit` 对体系仓自身；`toolbox list` 盘点零使用工具提议退役（agent-toolbox 使用时机 5）；看 `::done` 收敛度量趋势（固化递增/待定递减）与 dev-guide 降级散修频率（频繁则收紧其 description）；lessons 中已验证多次的条目提议升舱进规范 skill（dev-loop §8 收敛复盘口径）。只看既有数据，不新增容器。
-- **改 docs 后**：跑 §八两条 lint + `sh scripts/agent-tools/docs-index-lint.sh`；**前端改码后**：`npx tsc --noEmit` + `npm test`（pretest 自动跑架构护栏）。
-- **git 纪律**：Agent 不执行任何 git 写操作（commit/建分支/合并/推送）——收尾只**生成** git 指令建议供人工复制执行（dev-loop §2「收尾 Git 指令建议」）；`context/` 随功能 PR 一起提交。部署不立 skill：执行走项目池脚本（如 deploy-cloud-run），流程/回滚以脚本头部指向的 runbook 为准。
+- **git 纪律**：Agent 不执行任何 git 写操作（commit/建分支/合并/推送）——收尾只**生成** git 指令建议供人工复制执行（dev-loop §2「收尾 Git 指令建议」）；`context/` 随功能 PR 一起提交。部署不立 skill：执行走项目池脚本，流程/回滚以脚本头部指向的 runbook 为准。
 
 ### 4.3 灾难恢复与记忆防腐
 

@@ -1,6 +1,6 @@
 ---
 name: memo-collector
-description: 备忘收集：待办两级落点——域内 context/epics/<名>/todos.md（按需创建）+ 全局 context/todos.md（misc 兜底），七类内联标签，完成移入 done.md，可挂状态与分层权重元数据；机械件 toolbox run todos。回复产生「待办/注意/风险/未验证假设/咒语/事实发现」类信号、用户说「记个待办/收集备忘」、或发送 ::todo ::todos ::tdone ::todo-clean ::todo-groom 时使用。与 dev-loop 互补：断点=唯一下一步，本表=全部积压。
+description: 备忘收集：待办三级落点——域内 context/epics/<名>/todos.md（按需创建）+ 本仓全局 context/todos.md（misc 兜底）+ 跨项目层 ~/.agents/context/todos.md（misc 节内 (proj: <项目名>) 标注，A 项目聊出的 B 项目事项落此），七类内联标签，完成移入 done.md，可挂状态与分层权重元数据；机械件 toolbox run todos。回复产生「待办/注意/风险/未验证假设/咒语/事实发现」类信号、用户说「记个待办/收集备忘」、或发送 ::todo ::todos ::tdone ::todo-clean ::todo-groom 时使用。与 dev-loop 互补：断点=唯一下一步，本表=全部积压。
 ---
 
 # Skill: Memo-Collector (备忘收集 — 待办列表 + 完成列表)
@@ -9,7 +9,7 @@ description: 备忘收集：待办两级落点——域内 context/epics/<名>/t
 
 ## 0. 文件落点与格式 (Layout & Format)
 
-统一落**当前项目根**的 `context/`（复用 dev-loop 目录约定，随 git 提交；跨项目各自一份，不共享）。落点为**两级模型（2026-10-07 ::adr 裁定，见各项目 decisions.md misc 节口径）**：域内文件随 epic 目录（与 devlog 同构——::next 候选/恢复/收尾清零只读本域文件），全局文件只兜底非域内条目；「全局积压一览」由 `toolbox run todos list` 机械聚合，不靠单文件。台账读写**一律走 `toolbox run todos`**（add/done/rm/move/list，AI 零手搓），脚本缺失时才降级 Edit 手工（禁整读重写）；`context/` 不存在时先建目录再写文件，**无需绑定 epic**。
+统一落**当前项目根**的 `context/`（复用 dev-loop 目录约定，随 git 提交；跨项目各自一份，不共享）。落点为**两级模型（2026-10-07 ::adr 裁定，见各项目 decisions.md misc 节口径）**：域内文件随 epic 目录（与 devlog 同构——::next 候选/恢复/收尾清零只读本域文件），全局文件只兜底非域内条目；「全局积压一览」由 `toolbox run todos list` 机械聚合，不靠单文件。**跨项目层（2026-10-20 裁定，第三级）**：明确归属**其他项目**的事项落体系仓 `~/.agents/context/todos.md` 的 misc 节、行尾 `(proj: <项目名>)` 标注（全项目可读的常驻仓；`todos add --root ~/.agents --to misc` 机械件现成）——本仓台账 grep 不到它，B 侧恢复/::next 按 §5 抓取口径读取。台账读写**一律走 `toolbox run todos`**（add/done/rm/move/list，AI 零手搓），脚本缺失时才降级 Edit 手工（禁整读重写）；`context/` 不存在时先建目录再写文件，**无需绑定 epic**。
 
 **`context/todos.md`（全局兜底台账：misc 散修 / 跨域 / 项目级）**：
 
@@ -53,7 +53,7 @@ epic: <名>
   - 印章写法为行内前缀（紧随日期之后、类型标签之前），如 `- [ ] [2026-10-15] [Hypothesis] (风险) ...`；dev-loop `[验证]` 行即 `[Fact]` 印章在日志层的实例，两口径同源。
 - **结构化状态 `(状态)`（与类型/生命周期正交，可选）**：`降级` / `暂缓` / `候`，**禁用 emoji**（如 🅿）。`降级`=主线拍板后置/降优先级；`暂缓`=用户拍板暂缓、待真机反馈再排期；`候`=实现候选项、依附其他项动工时一并做、勿单独排期。机器可解析，供 `::todo-groom` 筛选与跨项目聚合。
 - **分层 / 权重元数据（可选，跨项目排序用）**：`(层:L0-L4)` 技术层次——L0 引擎算法 / L1 平台系统 / L2 数据存储 / L3 加工管线 / L4 UI 交互；`(重:轻/中/重)` 工作量——轻(1-2文件局部) / 中(单模块改造) / 重(跨模块·新页·架构)。二者均可选；散修 misc 项或轻量项目可省略，仅主线/评审场景补以增强可排序性。
-- **路由规则（写死，判定先于落盘）**：① **域内**——该 epic 可独立解决的行动项（拆解跟进、子任务、域内修复/测试项）→ `todos add --to <epic名>`；② **全局**——跨域 `(风险)`/`(block)`、项目级/系统级事项、S3 PATCH 债（solution-admission §3）、副作用高危转化（ai-sideeffect-guard §4）、无明确归属 → `todos add --to misc`；③ 拿不准一律 misc（常驻兜底）；CURRENT 为 none/未绑定时一律 misc。**防双写（拆解归 todos，挂载只认正式文档）**：任务拆解（结构+行动项）一律落域内 `todos.md`；正式设计文档（blueprint）只承载需求/设计理由，**严禁把任务拆解清单写成文档充当挂载底子**——无正式文档时不建文档装拆解，挂载指针直接指向域内 `todos.md`（真实设计文档具备后再升级指向正式文档）。带依赖/分组的拆解理由在无正式文档时经 `::adr` 落 decisions.md 或 devlog `[note]` 留痕，todos 只收行动项。
+- **路由规则（写死，判定先于落盘）**：① **域内**——该 epic 可独立解决的行动项（拆解跟进、子任务、域内修复/测试项）→ `todos add --to <epic名>`；② **全局**——跨域 `(风险)`/`(block)`、项目级/系统级事项、S3 PATCH 债（solution-admission §3）、副作用高危转化（ai-sideeffect-guard §4）、无明确归属 → `todos add --to misc`；③ **跨项目**——明确归属**其他项目**的事项（A 项目窗口聊出 B 项目的活）→ `todos add --root ~/.agents --to misc --type <类型> "<事项> (proj: <项目名>)"`（体系仓常驻台账，B 侧按 §5 抓取）；④ 拿不准一律 misc（常驻兜底）；CURRENT 为 none/未绑定时一律 misc。**防双写（拆解归 todos，挂载只认正式文档）**：任务拆解（结构+行动项）一律落域内 `todos.md`；正式设计文档（blueprint）只承载需求/设计理由，**严禁把任务拆解清单写成文档充当挂载底子**——无正式文档时不建文档装拆解，挂载指针直接指向域内 `todos.md`（真实设计文档具备后再升级指向正式文档）。带依赖/分组的拆解理由在无正式文档时经 `::adr` 落 decisions.md 或 devlog `[note]` 留痕，todos 只收行动项。
 
 **`context/done.md`（完成列表，append-only，全局单文件）**：
 
@@ -68,11 +68,7 @@ format: v2
 
 条目行格式（写死）：`- [YYYY-MM-DD] <一句话事项> (域: <epic名 | misc>)`（唯一允许的追加后缀：`（人工打勾回收）`）
 
-**v1 迁移**：若存在 format: v1 旧文件（六类型分节），迁移时全部条目并入 `## misc` 节（补内联类型标签），删除类型节标题，头部改 `format: v2`。
-
-**v2→v3 迁移**：todos.md 头部 `format: v2` → `v3`；条目行在类型后可选追加 `(状态)`（降级/暂缓/候，替换任何手写 emoji 状态）、`(层:L0-L4)`、`(重:轻/中/重)` 元数据（均向后兼容，旧条目缺省即等同 v2，无需强制补全）；done.md 维持 v2 不变。
-
-**v3 域级迁移（2026-10-07，一次性）**：全局文件中各 epic 节的条目整节迁往 `context/epics/<名>/todos.md`（`todos add` 补域文件头部，条目行内容原样保留；非标准手搓节并入语义对应域）；全局文件重建为仅 `## misc` 节；done.md 历史不动。
+**版本注记**：现行 `format: v3`（域内两级落点）；v1（六类型分节）→v2（内联类型标签）→v3（域级拆分）为历史演进，迁移规则见 git 历史（`git log -p -- context/`）与本 skill 历史版本，存量不合规格式按 dev-init §1.5 存量对账迁移。
 
 ## 1. 自动收集协议 (触发点批量落盘)
 
@@ -153,7 +149,8 @@ format: v2
 2. memory.md 遗留断点（未过期则直接报告开工，不重排）；
 3. 当前 epic 域文件 `(修复)` 与可转化为具体动作的 `(风险)`；
 4. 当前 epic 域文件 `(功能)` `(优化)` `(测试)`；
-5. 全局 `## misc` 节（跨域/项目级）。
+5. 全局 `## misc` 节（跨域/项目级）；
+6. **跨项目层抓取（2026-10-20 裁定）**：恢复/::next 推导候选时 `grep '(proj: <本仓名>)' ~/.agents/context/todos.md`——命中 >0 则附一行提示「跨项目层有 N 条挂本仓」并把相关条目列为候选（只读不搬家；选定后按 ::next 落断点，完成走 `todos done --root ~/.agents` 结转）。
 
 - TODO 被选定开工时：经 dev-loop §6 既有口径落盘为断点（执行台唯一写入路径），todos.md 中保持 `[ ]` 不变——条目状态只在完成流转（§2）时离开列表，**严禁维护「进行中」双状态**；
 - memo-collector 自身严禁直写 memory.md；断点刷新属 dev-loop 职责。

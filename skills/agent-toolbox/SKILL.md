@@ -9,7 +9,7 @@ description: 全局脚本工具箱机制：脚本池/元工具/头部规范/钩�
 
 ## 三层结构
 
-- **法律**（本 skill + `toolbox spec`）：目录约定、编写规范、生命周期；
+- **法律**（本 skill + `toolbox spec`）：目录约定、编写规范、生命周期。**上位关系（写死）**：规范 SSOT = 元工具内嵌 spec（`toolbox spec` 的输出即唯一事实源），本 skill 法律节是指针摘要层——两者冲突时以 `toolbox spec` 为准，改规范只改元工具。
 - **元工具**（规范 SSOT + 执行器）：`~/.agents/skills/agent-toolbox/toolbox-mgr.py`——唯一正身，**只搬运不重生**（新机器 clone/同步 `~/.agents` 后跑 `toolbox init` 即完成适配；严禁重新生成或手改副本）；
 - **工具脚本**（自描述）：参数/帮助/检测项/金丝雀自测全部内聚在脚本头部与代码内，清单由 `toolbox list` 现场派生——**不存在需要维护的注册表**。
 

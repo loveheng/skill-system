@@ -18,11 +18,11 @@ description: 新项目/新仓库/存量项目初始化 AI 开发 skill 体系的
 
 ## 1. 接入 Checklist（按序执行；跳过项必须留一句理由）
 
-> **骨架捷径**：第 2/6/7 步的目录与空文件可由 `toolbox run scaffold` 一键生成（幂等、不覆盖已有文件；含 context/ 骨架 + 白名单骨架 + `.agents/skills/` + 项目池 + docs 数据 skill 仅存量 `docs/` 时创建，见 agent-toolbox）。人工取证项（事实源 / 索引内容 / 规范 skill / 无 `docs/` 时按项目类型生成初始域结构）脚本不代劳，仍需按步执行。
+> **骨架捷径**：第 2/6/7 步的目录与空文件可由 `toolbox run scaffold` 一键生成（幂等、不覆盖已有文件；含 context/ 骨架 + 白名单骨架 + `.agents/skills/` + 项目池 + docs 最小集——README 结构索引 + project/index.md + project/coding-standards.md 骨架，`<repo>-docs` skill 随之恒定创建）。人工取证项（事实源 / 索引内容 / 规范条款 / 其余业务域）脚本不代劳，仍需按步执行。
 
 1. **项目形态判定**：非编码工作区（纯文档/笔记/资料库，无代码迭代）不接入本体系——本体系只服务编码项目；判定为非编码 → 全清单跳过（按需建 `docs/` 即可），留一行理由。
 2. **context/ 记忆骨架**：`context/CURRENT`（`epic: misc`）+ `epics/misc/`（memory.md + devlog.md）+ lessons.md；todos.md/done.md 可缺省（memo-collector §0：文件缺失时现写模板）——目录契约见 dev-loop §0。**骨架捷径**：`toolbox run scaffold` 可一键生成（幂等不覆盖）。**存量分支**：`context/` 已存在但文件不合当前契约（无 YAML 头 / 旧格式 / lessons 落错层 / CURRENT 被 commit）→ 走 §1.5 存量对账第 2 项迁移，勿直接「已存在 → 跳过」。
-3. **事实源 skill（workflow 类）**：从 README/构建脚本/CI **现场实测取证**提炼——模块结构、包名、构建/测试命令、环境硬约束（终端/写入限制）。结构与粒度参照既有项目实例（样例：任一实存 project-local 的 `<repo>-workflow`，如 goodshare-workflow、goodhub-workflow（含 lessons 录入协议 / 命令唯一出处 / 定位边界三件套分工 / 读码纪律三段式的通用骨架——读码纪律由 scaffold 预填通用正文、项目只补实证锚点；取其结构不搬 goodhub 数据）；指针须可定位实存路径）；内容严禁虚构，命令至少实测跑通一条。**本 skill 内指针指向的规范文件须同轮建出**（如 `context/lessons.md`——格式按各体系 SSOT：lessons 录入格式已升舱为全局口径 dev-loop REFERENCE §2「lessons 录入与归并」+ dev-loop §0 头契约），建骨架不填数据。**取证捷径**：`toolbox run fact-probe` 先出候选事实底稿（构建系统/候选命令/测试框架/CI/结构与环境线索/skill 体系现状）——底稿严禁直接采信，实测与提炼仍为本步义务（脚本只收集证据）。**模板**：`skills/dev-init/templates/workflow.template.md`（通用骨架预填，项目只补实证；提炼协议=templates/README.md）。**存量分支**：workflow 已存在 → 按 §1.5 第 1 项逐条对当前代码重验，**全对才通过**（命令跑通 ≠ 事实源一致）。
+3. **事实源 skill（workflow 类）**：从 README/构建脚本/CI **现场实测取证**提炼——模块结构、包名、构建/测试命令、环境硬约束（终端/写入限制）。结构与粒度参照既有项目实例（样例：任一实存 project-local 的 `<repo>-workflow`，如 goodshare-workflow、goodhub-workflow（含 lessons 录入协议 / 命令唯一出处 / 定位边界三件套分工 / 读码纪律三段式的通用骨架——读码纪律由 scaffold 预填通用正文、项目只补实证锚点；取其结构不搬 goodhub 数据）；指针须可定位实存路径）；内容严禁虚构，命令至少实测跑通一条。**实测 FAIL 口径（写死）**：命令失败是取证事实——失败原因如实写入 workflow「环境硬约束」（缺件/版本/PATH），严禁虚构通过或静默跳过；随后换用本环境可跑通的命令满足「≥1 条跑通」卡点，原失败命令在 workflow 中标注「未实测（原因）」。**实测前副作用面审查（写死）**：跑任何实测命令前先评估副作用面（写缓存/下载依赖/联网/改文件），有外部副作用的先一句向用户声明再执行，禁盲跑。**本 skill 内指针指向的规范文件须同轮建出**（如 `context/lessons.md`——格式按各体系 SSOT：lessons 录入格式已升舱为全局口径 dev-loop REFERENCE §2「lessons 录入与归并」+ dev-loop §0 头契约），建骨架不填数据。**取证捷径**：`toolbox run fact-probe` 先出候选事实底稿（构建系统/候选命令/测试框架/CI/结构与环境线索/skill 体系现状）——底稿严禁直接采信，实测与提炼仍为本步义务（脚本只收集证据）。**模板**：`skills/dev-init/templates/workflow.template.md`（通用骨架预填，项目只补实证；提炼协议=templates/README.md）。**存量分支**：workflow 已存在 → 按 §1.5 第 1 项逐条对当前代码重验，**全对才通过**（命令跑通 ≠ 事实源一致）。
 4. **project-local 索引**：按 project-index `template.md` 建 `<repo>/.agents/skills/<repo-name>-index/SKILL.md`——**模板**：`templates/index.template.md`（规约骨架，数据住 `docs/project/index.md`）——只登记域级锚点，禁止一次性铺满（project-index「表格式规范」「维护协议」）。**索引数据文件同轮建出**：skill 指针指向的数据文件（如 `docs/project/index.md`，路径随项目 docs 结构）须按 project-index 模板建表头骨架（≥1 行真实落点见硬卡点，禁铺满）。**存量分支**：索引已存在 → 按 §1.5 第 1 项核对锚点与代码一致。
 5. **项目规范 skill（按需）**：从现有代码提炼写法模式——**模板与提炼协议**：`templates/standards.template.md`（规范文档骨架）+ `templates/docs.template.md`（docs 分支 skill）+ `templates/README.md`（来源四项/停止判据，写死）；通用化样例：goodhub-workflow 的「定位边界三件套分工」表；小项目可跳过——workflow + 索引即最小可用集。**落点与索引同级**：一律建在本仓 `<repo>/.agents/skills/`（project-local，随仓库版本化），**不进 global**（global 只放跨项目机制）；新建守 README §4.4（description 预算 + 事实指针化）。**规范 skill 内指针指向的 standards 文档同轮建出**（如 `docs/project/coding-standards.md`——按 docs-spec frontmatter 头契约建骨架，条款随代码提炼增量长，禁预写空泛条目）。
    - **docs 单独判定（先取证存量，再按项目类型补充；不留空位）**：
@@ -30,7 +30,7 @@ description: 新项目/新仓库/存量项目初始化 AI 开发 skill 体系的
      - **无 `docs/`**：不建空骨架，**按项目类型推导初始域结构**（后端服务 → `architecture/` + `deploy/`，有对外接口加 `api/`；Web/前端 → `design/` + `api/`；CLI/库 → `reference/` + `cli/`；文档站 → `guide/` + `api/`；其余兜底 `architecture/` + `guide/`），生成 `docs/README.md` 纯结构索引（docs-spec §5）+ 至多 1~2 个种子文档（如指向主 README 的 `architecture/overview`，**内容必须提炼自主 README/代码现状，严禁占位文案**——否则即违反本步「不建空骨架」初衷），禁止一次性铺满五切片——后续按项目实际长域。本步实际创建了 `docs/` 时，同样须建 `<repo>-docs` skill（§1.5 第 4 项硬卡点同适用）。
      - 两种情形收口均按 §2「三处同步」把 docs skill 域表同步进 `docs/README.md` 与项目索引的文档落点列。
 6. **toolbox 项目池（脚本文件夹初始化）**：`toolbox init --project` 建 `scripts/agent-tools/` **并落 `README.md` 占位**——空目录不入 git，占位文件保证池随仓库 clone 即得；项目池随仓库版本化，同名工具覆盖全局池。**收编**：仓库内已有持久散放脚本（仓库根、`scripts/` 下的 .sh/.mjs/.py 等）按 agent-toolbox「散乱脚本治理」处理——评估复用价值 → 合规化（补头部块/`--help`/`--json`/`--self-test`）→ `toolbox check` 入池 → 原址删除或改一行薄指针（check 门禁不豁免）。**骨架捷径**：`toolbox run scaffold` 内部会调用 `toolbox init --project`。
-7. **副作用收集白名单骨架（项目级，非全局）**：仓库根建 `.uncertainty-whitelist` 与 `.degrade-whitelist` 空文件（uscan/dscan 自动加载，缺失不报错）；文件仅含头注释（用途 + 格式：每行一个正则、`#` 注释 + 收录标准：逐处核读定性「有意降级/已知误报」才收录、修复后删行恢复监控），**禁预置条目**——首跑全量基线（首次 ::done；存量项目按 §1.5 第 5 项基线前移至接入时点）评估后才逐条登记（口径与格式见 ai-sideeffect-guard §3）。**骨架捷径**：`toolbox run scaffold` 已生成则 ✓ 跳过。
+7. **副作用收集白名单骨架（项目级，非全局）**：仓库根建 `.uncertainty-whitelist` 与 `.degrade-whitelist` 空文件（uscan/dscan 自动加载，缺失不报错）；文件仅含头注释（用途 + 格式：每行一个正则、`#` 注释 + 收录标准：逐处核读定性「有意降级/已知误报」才收录、修复后删行恢复监控），**禁预置条目**——首跑全量基线（首次 ::done；存量项目按 §1.5 第 5 项基线前移至接入时点）评估后才逐条登记（口径与格式见 ai-sideeffect-guard §3）。**骨架捷径**：`toolbox run scaffold` 已生成则 ✓ 跳过。**持久日志路径约定（项目产生运行期日志时）**：`dtrig` 默认扫 `/tmp/logs`、四工具 `--md` 报告常导 `/tmp`——均为易失路径；项目池登记持久日志的落地目录后，在项目 workflow skill 写明该目录与 `dtrig --logs` 口径（如 `logs/` 随 .gitignore），禁让运行期观测依赖 /tmp。
 8. **AGENTS.md（跨工具会话初始化兜底）**：仓库根 AGENTS.md（无则新建；存量其他 AI 指令文件先读、核对无冲突后追加节，不另起新文件；有冲突出示分歧清单再收口）写入「会话初始化」节——**非 ZCode 工具的会话绑定入口**，模板（规约正文指针到 dev-loop §3「会话绑定」，此处只放启动胶水，禁复制机制正文）：
    - `## 会话初始化（新窗口开场执行一次）`
    - `- 开场含「继续/开工/初始化」或首次指令时：先跑 \`toolbox run-hooks bootstrap --quiet\`（非 0 仅附一行 ⚠，不阻塞；无 toolbox 跳过）→ 跑 \`toolbox run panel\`（无 toolbox 则读 context/CURRENT → 绑定 epic 的 memory.md 断点）→ 输出会话绑定卡（域/类型/挂载/任务全景/状态）→ 按断点开工或等指令；多任务切换 \`::board\`（绑定纪律与恢复规约：~/.agents/skills/dev-loop/SKILL.md §3，存在时以其为准）`
@@ -43,10 +43,10 @@ description: 新项目/新仓库/存量项目初始化 AI 开发 skill 体系的
 > 空白板项目本节整体跳过。「现场提炼」对存量是**重验**不是**新建**——skill 能加载 ≠ skill 是最新的，过期 skill 比没有 skill 更危险（错误锚点误导每一轮定位）。
 
 1. **skill 三互检 + 对代码 verify**：workflow / 索引 / 规范三 project-local skill 的技术栈与目录锚点**互相一致**，且逐条对当前代码核实（目录存在、命令可跑、接口签名在代码中）；任一过期 → 按 §1 对应步重建/修正（走 dev-loop §2「SSOT 修正」留痕口径，过期结论不许静默改写）。**重验捷径**：`toolbox run fact-probe` 重跑底稿与 workflow 记载 diff，差异点逐条核实；`toolbox run skill-verify` 批量校验三 skill 的路径/命令/符号锚点存在性（机械半边——判不准的不报，语义核实仍归 AI）。
-2. **存量 context/ 迁移**：已有文件按当前契约逐一校验——YAML 头齐全（dev-loop §0 / memo-collector §0）；todos 旧格式走 memo-collector「v1 迁移」；lessons 落错层（如 `epics/<x>/lessons.md`）迁至 `context/lessons.md`；CURRENT 被 commit → 按 §2 第 1 项 gitignore 并从 index 移除（`git rm --cached`，经确认）。
+2. **存量 context/ 迁移**：已有文件按当前契约逐一校验——YAML 头齐全（dev-loop §0 / memo-collector §0）；todos 旧格式走 memo-collector §0「版本注记」（历史迁移规则按其指针到 git 历史与本 skill 历史版本）；lessons 落错层（如 `epics/<x>/lessons.md`）迁至 `context/lessons.md`；CURRENT 被 commit → 按 §2 第 1 项 gitignore 并从 index 移除（`git rm --cached`，经确认）。
 3. **gitignore 机械校验**：`git check-ignore context/CURRENT` 必须命中，未命中 → 向 `.gitignore` 追加一行（追加不破坏存量规则）。
 4. **docs 硬卡点**：`docs/` 已存在但无 `<repo>-docs` skill → 第 5 步的「已有 docs/」分支升级为**硬卡点**（§2），不得默认跳过。
-5. **基线前移**：ai-sideeffect-guard 四工具 + toolbox bootstrap/audit 在接入时即跑一次全量基线（存量命中先定性：有意降级入白名单、高危转 `风险` 待办），不等首个 `::done`；未验证假设顺手登记 todos `(风险)[long]`。
+5. **基线前移**：ai-sideeffect-guard 四工具 + toolbox bootstrap/audit 在接入时即跑一次全量基线（存量命中先定性：有意降级入白名单、高危转 `风险` 待办），不等首个 `::done`；未验证假设顺手登记 todos `(风险)[long]`。**顺序拼合（写死，与 §1 第 7 步同口径）**：全量基线先行 → 逐条定性 → 白名单登记——白名单严禁先于基线预登记（没见过基线的白名单行 = 未审先录）。
 6. **存量知识收割（可选）**：代码注释/旧文档/已修 bug 中有通用价值者，提炼进 lessons.md 与 decisions.md（口径归 memo-collector / dev-loop §6），不虚构、不搬运正文。
 
 **对账硬卡点**（缺卡 = 存量接入未完成）：
@@ -57,14 +57,15 @@ description: 新项目/新仓库/存量项目初始化 AI 开发 skill 体系的
 - `[事实源]` workflow skill 已建，构建/测试命令已实测（≥1 条跑通）；**存量项目另加**「逐条对当前代码核实」（§1.5 第 1 项）
 - `[索引]` 归属表 ≥1 行真实落点（非占位）；**存量项目另加**锚点对代码核实
 - `[验收]` 冷启动演练通过 + §2 自检全 ✓
-- `[存量对账]`（仅存量项目）§1.5 对账硬卡点全 ✓；`docs/` 存在时 `<repo>-docs` skill 已建
+- `[docs skill]` `docs/` 存在时（存量已有或本流程新建）`<repo>-docs` skill 已建——独立于存量/新建形态通用适用
+- `[存量对账]`（仅存量项目）§1.5 对账硬卡点全 ✓
 
 ## 2. 自检清单
 
 - 机械项聚合：`toolbox run ctx-audit --init` 一条命令出 ✓/⚠（exit 0 为过；下列各条为其明细口径，人判项不在档内）
 - `git check-ignore context/CURRENT` 命中（机械验证），context/ 其余纳入版本控制（dev-loop §0/§4）
-- 记忆文件 schema 合规：todos.md 符合 memo-collector §0 模板（YAML 头 + `## misc` 兜底节 + 条目类型标签）；memory/lessons 有 dev-loop §0 YAML 头（存量项目 = §1.5 迁移后复核）
-- 新建各 skill description ≤~250 字符、正文无易漂移事实（README §4.4）
+- 记忆文件 schema 合规：todos.md 符合 memo-collector §0 模板（YAML 头 `memo: todos / format: v3` + `## misc` 兜底节 + 条目类型标签；done.md 维持 v2）；memory/lessons 有 dev-loop §0 YAML 头（存量项目 = §1.5 迁移后复核）
+- 新建各 skill description ≤~250 字符（软预算，控路由 token；机械上限 550 字符见 dev-loop REFERENCE §7 第 10 项）、正文无易漂移事实（README §4.4）
 - skill 间互引指针可 grep（§节号/节名锚点真实存在）
 - 新登记脚本过 `toolbox check`，`toolbox list` 可现场派生
 - 机器级机械件在场（fail-open 记 ⚠ 不阻塞）：panel/cmds `toolbox list` 可见；用户级开场协议 `~/.zcode/AGENTS.md` 已部署（SSOT `~/.agents/AGENTS.md`）
