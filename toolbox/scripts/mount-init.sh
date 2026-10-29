@@ -2,7 +2,7 @@
 # toolbox-script
 # format: v1
 # name: mount-init
-# summary: epic 挂载初始化单一入口：::bind 的机械件（校验 slug/墓碑/重复挂载/切换前置 → 生成 memory/devlog 骨架与挂载行/断点行 → 改写 CURRENT），AI 零猜测零拼装
+# summary: epic 挂载初始化单一入口：::bind 的机械件（校验 slug/墓碑/重复挂载/切换前置 → 模板渲染 memory/devlog 骨架（templates/epic/ 资产层）与挂载行/断点行 → 改写 CURRENT；--temp 建临时骨架内置 kind: temp/绑定即自动补标），AI 零猜测零拼装
 # trigger: manual
 # cat: ops
 # alias: mi
@@ -14,7 +14,7 @@
 # 文档首稿内容仍须 AI 提炼自讨论落盘（严禁占位文案）。
 set -u
 SELF=$0
-ROOT=''; EPIC=''; DOC=''; TITLE=''; CREATE_DOC=0; CURRENT_ONLY=0; TEMP=0; RESTORE=0; DRY=0; JSON=0
+ROOT=''; EPIC=''; DOC=''; TITLE=''; CREATE_DOC=0; CURRENT_ONLY=0; TEMP=0; RESTORE=0; MARK_TEMP=0; DRY=0; JSON=0
 
 usage() {
   cat <<'EOF'
@@ -42,6 +42,8 @@ mount-init —— epic 挂载初始化（::bind 机械件；幂等安全：已�
   --temp           临时绑定（并行临时任务防日志错位）：原绑定记入 CURRENT 第二行 base:，
                    CURRENT 指向临时 epic；恢复走 --restore。禁止嵌套（已有 base 行先 --restore）
   --restore        恢复基础绑定：按 CURRENT 的 base 行改写回 epic 并清除临时态
+  --mark-temp      临时 epic 标记：memory 头部写 kind: temp + H1 标「（临时）」（新建临时 epic
+                   建骨架后与存量回填共用；幂等；misc/骨架缺失拒）——收尾走 devlog archive，不 reopen
   --create-doc     底子文档不存在时连骨架一起创建（候选空 → 先建文档再挂载的机械件）
   --dry-run        只打印将做什么，不落盘
   --json           预检结论（不落盘）：各校验项通过与否——AI 亮牌确认前先跑这个
@@ -156,6 +158,37 @@ exec_self_test() {
   : > context/epics/misc/devlog.md
   sh "$SELF" --root "$T" --restore >/dev/null 2>&1 || { echo 'fail: T13b 清账后 restore 应成功'; ok=0; }
   grep -q '^epic: demo$' context/CURRENT || { echo 'fail: T13b 未恢复基础绑定'; ok=0; }
+  # T14 --mark-temp：kind: temp + H1 标注 + 幂等 + misc/不存在拒
+  mkdir -p context/epics/tmpq
+  printf -- '---\ndev-loop: memory\nformat: v1\nepic: tmpq\ntotal-merged: 0\nlast-merge: none\n---\n\n# tmpq\n\n## 断点\n- [断点] 下一步：等待拆解\n' > context/epics/tmpq/memory.md
+  sh "$SELF" --root "$T" --mark-temp --epic tmpq >/dev/null 2>&1 || { echo 'fail: T14 mark-temp 应成功'; ok=0; }
+  grep -q '^kind: temp$' context/epics/tmpq/memory.md || { echo 'fail: T14 kind 行缺失'; ok=0; }
+  grep -qxF '# tmpq（临时）' context/epics/tmpq/memory.md || { echo 'fail: T14 H1 未标注'; ok=0; }
+  sh "$SELF" --root "$T" --mark-temp --epic tmpq >/dev/null 2>&1 || { echo 'fail: T14 幂等应成功'; ok=0; }
+  [ "$(grep -c '^kind: temp$' context/epics/tmpq/memory.md)" = 1 ] || { echo 'fail: T14 幂等产生重复 kind 行'; ok=0; }
+  sh "$SELF" --root "$T" --mark-temp --epic misc >/dev/null 2>&1 && { echo 'fail: T14 misc 应拒'; ok=0; }
+  sh "$SELF" --root "$T" --mark-temp --epic nope >/dev/null 2>&1 && { echo 'fail: T14 不存在应拒'; ok=0; }
+  sh "$SELF" --root "$T" --mark-temp --epic tmpq --doc docs/design/tmpq.md >/dev/null 2>&1 && { echo 'fail: T14 带 --doc 应拒'; ok=0; }
+  # T15 --temp 建临时 epic：目录不存在时骨架内置 kind: temp（单入口，无需 --doc/--mark-temp）
+  sh "$SELF" --root "$T" --temp --epic tmpnew >/dev/null 2>&1 || { echo 'fail: T15 temp 建骨架应成功'; ok=0; }
+  grep -q '^kind: temp$' context/epics/tmpnew/memory.md || { echo 'fail: T15 kind 行缺失'; ok=0; }
+  grep -qxF '# tmpnew（临时）' context/epics/tmpnew/memory.md || { echo 'fail: T15 H1 未标注'; ok=0; }
+  [ -f context/epics/tmpnew/devlog.md ] || { echo 'fail: T15 devlog 缺失'; ok=0; }
+  grep -q '^base: demo$' context/CURRENT || { echo 'fail: T15 base 行缺失'; ok=0; }
+  sh "$SELF" --root "$T" --restore >/dev/null 2>&1 || { echo 'fail: T15 restore 应成功'; ok=0; }
+  # T16 --temp 绑定已存在无挂载行未标记 epic → 自动补标
+  mkdir -p context/epics/tmold
+  printf -- '---\ndev-loop: memory\nformat: v1\nepic: tmold\ntotal-merged: 0\nlast-merge: none\n---\n\n# tmold\n\n## 断点\n- [断点] 下一步：等待拆解\n' > context/epics/tmold/memory.md
+  sh "$SELF" --root "$T" --temp --epic tmold >/dev/null 2>&1 || { echo 'fail: T16 temp 绑定应成功'; ok=0; }
+  grep -q '^kind: temp$' context/epics/tmold/memory.md || { echo 'fail: T16 未自动补标'; ok=0; }
+  sh "$SELF" --root "$T" --restore >/dev/null 2>&1
+  # T17 正式 epic（有挂载行）不误标 + misc 不补标
+  sh "$SELF" --root "$T" --temp --epic bar >/dev/null 2>&1 || { echo 'fail: T17 temp 绑定 bar 应成功'; ok=0; }
+  grep -q '^kind: ' context/epics/bar/memory.md 2>/dev/null && { echo 'fail: T17 正式 epic 被误标'; ok=0; }
+  sh "$SELF" --root "$T" --restore >/dev/null 2>&1
+  sh "$SELF" --root "$T" --temp --epic misc >/dev/null 2>&1 || { echo 'fail: T17 temp 绑定 misc 应成功'; ok=0; }
+  grep -q '^kind: ' context/epics/misc/memory.md 2>/dev/null && { echo 'fail: T17 misc 被误标'; ok=0; }
+  sh "$SELF" --root "$T" --restore >/dev/null 2>&1
   rm -rf "$T"
   if [ "$ok" -eq 1 ]; then echo 'self-test: OK（全链路+五类拦截+切换前置+dry-run+json 预检+原子 mkdir 闸门）'; return 0; fi
   return 2
@@ -170,6 +203,7 @@ while [ $# -gt 0 ]; do
     --create-doc) CREATE_DOC=1; shift ;;
     --current-only) CURRENT_ONLY=1; shift ;;
     --temp) TEMP=1; CURRENT_ONLY=1; shift ;;
+    --mark-temp) MARK_TEMP=1; shift ;;
     --restore) RESTORE=1; shift ;;
     --dry-run) DRY=1; shift ;;
     --json) JSON=1; shift ;;
@@ -190,11 +224,21 @@ if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
 fi
 CTX="$ROOT/context"
 
+# ---- 骨架模板（骨架格式=资产层：toolbox/templates/epic/，随 ~/.agents 仓库同步；脚本只留渲染落盘）----
+# 渲染契约 = toolbox/lib/render.sh（render_tpl/render_std/tpl_check + 残留 {{ 校验 + 转义，占位符规格见 templates/README.md）
+TPL_DIR="$(dirname "$SELF")/../templates/epic"
+LIB_DIR="$(dirname "$SELF")/../lib"
+[ -f "$LIB_DIR/render.sh" ] || { echo "ERROR: 渲染器缺失: $LIB_DIR/render.sh"; echo '[remedy] 渲染器应随 ~/.agents 仓库同步；重新同步或补齐后重跑'; exit 2; }
+. "$LIB_DIR/render.sh"
+
 # ---- 参数完整性 ----
 if [ "$RESTORE" -eq 1 ]; then
   [ -z "$EPIC" ] || fail '--restore 不接受 --epic（恢复目标来自 CURRENT 的 base 行）' '去掉 --epic 重跑'
 elif [ "$CURRENT_ONLY" -eq 1 ]; then
   [ -n "$EPIC" ] || fail '补 --epic <名>（--current-only/--temp 切换目标）' '--current-only/--temp 需要 --epic'
+elif [ "$MARK_TEMP" -eq 1 ]; then
+  [ -n "$EPIC" ] || fail '补 --epic <名>（标记目标）' '--mark-temp 需要 --epic'
+  [ -z "$DOC" ] || fail '--mark-temp 不接受 --doc（临时 epic 无挂载文档）' '去掉 --doc 重跑'
 else
   { [ -n "$EPIC" ] && [ -n "$DOC" ]; } || fail '补 --epic <名> 与 --doc <docs/...md>（候选列表跑 toolbox run panel --mounts）' '--epic 与 --doc 必填'
 fi
@@ -210,10 +254,35 @@ if [ "$CURRENT_ONLY" -eq 0 ] && [ "$EPIC" = 'misc' ]; then
 fi
 EPIC_DIR="$CTX/epics/$EPIC"
 # 维护态 epic 完整挂载拦截：先解除维护标记再续绑（devlog reopen），或 --current-only 续绑
-if [ "$CURRENT_ONLY" -eq 0 ] && [ -d "$EPIC_DIR" ] \
+if [ "$CURRENT_ONLY" -eq 0 ] && [ "$MARK_TEMP" -eq 0 ] && [ -d "$EPIC_DIR" ] \
    && [ "$(sed -n '2,12{s/^state:[[:space:]]*//p}' "$EPIC_DIR/memory.md" 2>/dev/null | head -n 1)" = 'maintenance' ]; then
   fail "先重开（toolbox run devlog reopen $EPIC）再完整挂载；或续绑走 --current-only --epic $EPIC" "epic 处于维护态（memory 头部 state: maintenance）: $EPIC"
 fi
+fi
+
+# ---- --mark-temp：临时 epic 标记（kind: temp YAML + H1 标注；新建建骨架后与存量回填共用，幂等）----
+if [ "$MARK_TEMP" -eq 1 ]; then
+  _mt_mem="$EPIC_DIR/memory.md"
+  [ -f "$_mt_mem" ] || fail '核对 epic 拼写或重建骨架后重跑' 'memory.md 缺失（骨架不完整，标记无处落）'
+  if grep -q '^kind: temp$' "$_mt_mem" 2>/dev/null; then
+    if [ "$JSON" -eq 1 ]; then json_out OK info "已标记临时（幂等无动作）: $EPIC"; else echo "OK: $EPIC 已是临时标记（幂等无动作）"; fi
+    exit 0
+  fi
+  if [ "$DRY" -eq 1 ]; then
+    if [ "$JSON" -eq 1 ]; then json_out OK info "[dry-run] $EPIC → kind: temp + H1（临时）"; exit 0; fi
+    echo "[dry-run] 将在 $_mt_mem 头部写 kind: temp 并标注 H1（临时）"
+    exit 0
+  fi
+  if [ "$JSON" -eq 1 ]; then json_out OK info "预检通过: $EPIC → kind: temp——去掉 --json 执行"; exit 0; fi
+  _mt_tmp="$_mt_mem.marktmp.tmp"
+  awk -v epic="$EPIC" '
+    /^---[[:space:]]*$/ { n++; if (n == 2 && !done) { print "kind: temp"; done = 1 } print; next }
+    $0 == "# " epic { print "# " epic "（临时）"; next }
+    { print }
+  ' "$_mt_mem" > "$_mt_tmp" || fail 'awk 处理失败' "检查文件编码与完整性: $_mt_mem"
+  mv "$_mt_tmp" "$_mt_mem" || fail '写回失败' "检查权限: $_mt_mem"
+  echo "OK: $EPIC → kind: temp（YAML + H1（临时））——收尾走 devlog archive（终态），不 reopen"
+  exit 0
 fi
 
 # ---- 底子文档校验（--current-only/--restore 跳过）----
@@ -285,7 +354,9 @@ fi
 
 # ---- --current-only：只切指针 ----
 if [ "$CURRENT_ONLY" -eq 1 ]; then
-  [ -d "$EPIC_DIR" ] || fail "epic 不存在，去掉 --current-only 走完整挂载（--doc <docs/...md>）" "epic 不存在: $EPIC"
+  if [ ! -d "$EPIC_DIR" ] && [ "$TEMP" -eq 0 ]; then
+    fail "epic 不存在，去掉 --current-only 走完整挂载（--doc <docs/...md>）" "epic 不存在: $EPIC"
+  fi
   if [ "$old_epic" = "$EPIC" ] && [ "$TEMP" -eq 0 ]; then
     if [ "$JSON" -eq 1 ]; then json_out OK info "已绑定 $EPIC（幂等无动作）"; else echo "OK: 已绑定 $EPIC，无动作"; fi
     exit 0
@@ -295,12 +366,45 @@ if [ "$CURRENT_ONLY" -eq 1 ]; then
       && fail '已有临时绑定未恢复——禁止嵌套临时绑定' '先 toolbox run mount-init --restore 恢复基础绑定'
     base_val="${old_epic:-none}"
     case "$base_val" in '(未绑定)'|'') base_val='none' ;; esac
+    # 单入口分流：目录不存在 → 建临时骨架（模板内置 kind: temp，无需 --doc）；
+    # 已存在且「无 kind 行 + 无挂载行 + ≠ misc」→ 绑定时自动补标（幂等收敛，无存量批量脚本）；
+    # 有挂载行 = 正式 epic（含过渡态），不误标。
+    _t_new=0; _t_stamp=0
+    if [ ! -d "$EPIC_DIR" ]; then
+      _t_new=1
+    elif [ "$EPIC" != 'misc' ] \
+      && ! grep -q '^kind: ' "$EPIC_DIR/memory.md" 2>/dev/null \
+      && ! grep -q '^- \[挂载\]' "$EPIC_DIR/memory.md" 2>/dev/null; then
+      _t_stamp=1
+    fi
+    _t_extra=''
+    [ "$_t_new" -eq 1 ] && _t_extra='＋建临时骨架（kind: temp）'
+    [ "$_t_stamp" -eq 1 ] && _t_extra="${_t_extra}＋补 kind: temp 标记"
     if [ "$DRY" -eq 1 ]; then
-      [ "$JSON" -eq 1 ] && { json_out OK info "[dry-run] 临时绑定: CURRENT → epic: $EPIC（base: $base_val）"; exit 0; }
-      echo "[dry-run] CURRENT → epic: $EPIC（base: $base_val 记入 CURRENT 第二行）"
+      [ "$JSON" -eq 1 ] && { json_out OK info "[dry-run] 临时绑定: CURRENT → epic: $EPIC（base: $base_val）$_t_extra"; exit 0; }
+      echo "[dry-run] CURRENT → epic: $EPIC（base: $base_val 记入 CURRENT 第二行）$_t_extra"
       exit 0
     fi
-    if [ "$JSON" -eq 1 ]; then json_out OK info "预检通过: 临时绑定 $EPIC（基础: $base_val）——去掉 --json 执行"; exit 0; fi
+    if [ "$JSON" -eq 1 ]; then json_out OK info "预检通过: 临时绑定 $EPIC（基础: $base_val）$_t_extra——去掉 --json 执行"; exit 0; fi
+    if [ "$_t_new" -eq 1 ]; then
+      mkdir -p "$EPIC_DIR" || fail '检查项目根与权限（--root）' "epic 目录创建失败: $EPIC_DIR"
+      tpl_check "$TPL_DIR/memory-temp.md" "$TPL_DIR/devlog.md"
+      render_tpl "$EPIC_DIR/memory.md" "$TPL_DIR/memory-temp.md" "EPIC=$EPIC"
+      render_tpl "$EPIC_DIR/devlog.md" "$TPL_DIR/devlog.md" "EPIC=$EPIC"
+      echo "  create context/epics/$EPIC/memory.md（kind: temp，模板渲染）"
+      echo "  create context/epics/$EPIC/devlog.md"
+    fi
+    if [ "$_t_stamp" -eq 1 ]; then
+      _ts_tmp="$EPIC_DIR/memory.md.autotmp.tmp"
+      awk -v epic="$EPIC" '
+        /^---[[:space:]]*$/ { n++; if (n == 2 && !done) { print "kind: temp"; done = 1 } print; next }
+        $0 == "# " epic { print "# " epic "（临时）"; next }
+        { print }
+      ' "$EPIC_DIR/memory.md" > "$_ts_tmp" \
+        && mv "$_ts_tmp" "$EPIC_DIR/memory.md" \
+        || fail '自动补标写回失败' "手工修复或重跑: $EPIC_DIR/memory.md"
+      echo "  mark    context/epics/$EPIC/memory.md → kind: temp（绑定即补，无挂载行的未标记 epic）"
+    fi
     { printf 'epic: %s\n' "$EPIC"; printf 'base: %s\n' "$base_val"; } > "$CTX/CURRENT"
     echo "OK: 临时绑定 $EPIC（基础: $base_val）——收尾后 toolbox run mount-init --restore 恢复"
     exit 0
@@ -373,34 +477,19 @@ updated: $TODAY
 EOF
 fi
 
-do_write "context/epics/$EPIC/memory.md" <<EOF
----
-dev-loop: memory
-format: v1
-epic: $EPIC
-total-merged: 0
-last-merge: none
----
-
-# $EPIC
-
-- [挂载] $DOC
-
-## 断点
-- [断点] 下一步：等待拆解
-EOF
-
-do_write "context/epics/$EPIC/devlog.md" <<EOF
----
-dev-loop: devlog
-format: v1
-epic: $EPIC
-total-merged: 0
-last-merge: none
----
-
-（开发过程日志按行追加：[变更]/[验证]/[note]/[SSOT 修正]；≥5 条自动归并进 memory.md——dev-loop §2）
-EOF
+tpl_check "$TPL_DIR/memory-formal.md" "$TPL_DIR/devlog.md"
+if [ "$DRY" -eq 1 ]; then
+  echo "  [dry-run] 创建 context/epics/$EPIC/memory.md（模板渲染）"
+  echo "  [dry-run] 创建 context/epics/$EPIC/devlog.md（模板渲染）"
+  CREATED="$CREATED context/epics/$EPIC/memory.md context/epics/$EPIC/devlog.md"
+else
+  render_tpl "$ROOT/context/epics/$EPIC/memory.md" "$TPL_DIR/memory-formal.md" "EPIC=$EPIC" "MOUNT=$DOC"
+  echo "  create context/epics/$EPIC/memory.md"
+  CREATED="$CREATED context/epics/$EPIC/memory.md"
+  render_tpl "$ROOT/context/epics/$EPIC/devlog.md" "$TPL_DIR/devlog.md" "EPIC=$EPIC"
+  echo "  create context/epics/$EPIC/devlog.md"
+  CREATED="$CREATED context/epics/$EPIC/devlog.md"
+fi
 
 do_current
 

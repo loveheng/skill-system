@@ -5,7 +5,7 @@
 # toolbox-script
 # format: v1
 # name: devlog
-# summary: dev-loop 记账单一入口：devlog 追加(变更强制配对验证/验证/自定义)/lessons 追加/断点刷新/未归并计数；--json 预检不落盘
+# summary: dev-loop 记账单一入口：devlog 追加(变更强制配对验证/验证/自定义)/lessons 追加/断点刷新/未归并计数/archive 物理归档；--json 预检不落盘
 # trigger: manual
 # cat: ops
 # platform: unix
@@ -42,6 +42,9 @@ devlog — dev-loop 记账单一入口（devlog 追加 / lessons 追加 / 断点
   close   <epic> <完结说明>         收尾标记（不搬目录）：memory 头部写 state: maintenance
                                     + 断点改「已完结：<说明>」+ CURRENT → epic: none
   reopen  <epic>                    重开：清 state 标记 + 断点回「下一步：等待拆解」+ CURRENT 指回 epic
+  archive <epic>                    物理归档：epics/<epic> → archive/<epic>（一次性/临时 epic 收尾后搬离
+                                    board/lint 扫描面，不占正式索引；misc/当前绑定/devlog 未清账/目标重名拒；
+                                    正式 epic 维护态永驻 epics/ 不走此路）
   clear   <epic>                    收尾清账（::done 末步，dlog 归档+memory 提炼完成后调用）：
                                     清空 devlog 追加区 + 头部同步（total-merged+1、last-merge=今天）
                                     ——防 reopen 后旧账混入自动归并
@@ -121,6 +124,11 @@ validate_epic() {
   [ -d "$EPIC_DIR" ] || die1 "epic 目录不存在: context/epics/$EPIC" "先 @file/@bind 绑定 epic（会创建骨架），或检查拼写"
 }
 
+# kind 判定：memory 头部 YAML 的 kind 行（kind: temp = 临时 epic，终态即 archive，不 reopen）
+kind_of() { # $1=memory.md 路径 → 输出 temp 或空
+  sed -n '2,12{s/^kind:[[:space:]]*//p}' "$1" 2>/dev/null | head -n 1
+}
+
 # 维护态写护栏：已收尾 epic（memory 头部 state: maintenance）禁止追加/断点刷新——先 reopen
 # （close/reopen/clear 三通道自身不受限；防收尾后惯性写日志落错状态）
 require_active() {
@@ -157,6 +165,9 @@ run_close() {
 
 # reopen：重开——清 state 标记 + 断点回「等待拆解」+ CURRENT 指回本 epic
 run_reopen() {
+  if [ "$(kind_of "$EPIC_DIR/memory.md")" = 'temp' ]; then
+    die1 "临时 epic 不走 reopen（归档即终态，仅作当时开发日志留存）" "要延续该工作 = 定性为正式需求：重新 ::bind 建正式 epic（或先删 kind: temp 行人工重定性）"
+  fi
   set_state ''
   _m="$EPIC_DIR/memory.md"
   _tmp="$_m.reopen.tmp"
@@ -190,6 +201,34 @@ run_clear() {
     { print }
   ' "$_f" > "$_tmp" && mv "$_tmp" "$_f" || { rm -f "$_tmp"; die2 "清账失败: $_f"; }
   echo "CLEAR: $EPIC devlog 追加区已清空（total-merged=$((_tm + 1))、last-merge=$_lm）"
+}
+
+# archive：物理归档——一次性/临时 epic 收尾后从 epics/ 搬入 archive/，退出 board/lint 扫描面。
+# （mount-init 已兼容 archive/*：重复挂载检查扫 archive/*/memory.md，CURRENT 解析认 archive/ 前缀）
+# 拦截：misc 常驻拒；被 CURRENT 绑定（含临时 base 行）拒；devlog 有未清账条目拒；archive 目标重名拒。
+run_archive() {
+  if [ "$EPIC" = "misc" ]; then
+    die1 "misc 是常驻散修兜底，不归档" "misc 永驻 epics/，无收尾概念"
+  fi
+  _cur=$(sed -n 's/^epic:[[:space:]]*//p' "$ROOT/context/CURRENT" 2>/dev/null | head -n 1)
+  _base=$(sed -n 's/^base:[[:space:]]*//p' "$ROOT/context/CURRENT" 2>/dev/null | head -n 1)
+  if [ "$_cur" = "$EPIC" ] || [ "$_base" = "$EPIC" ]; then
+    die1 "epic 仍被 CURRENT 绑定（含临时绑定 base 行）: $EPIC" "先 --restore/--current-only 切走，或 devlog close 后再 archive"
+  fi
+  _pend=$(grep -c '^- \[' "$EPIC_DIR/devlog.md" 2>/dev/null) || _pend=0
+  if [ "${_pend:-0}" -gt 0 ]; then
+    die1 "devlog 有未清账条目 $_pend 条: $EPIC" "先 ::done（dlog 归档 + devlog clear 清账）再 archive"
+  fi
+  _arc="$ROOT/context/archive"
+  if [ -e "$_arc/$EPIC" ]; then
+    die1 "archive 目标已存在: archive/$EPIC" "改名区分批次，或确认后清理旧归档"
+  fi
+  mkdir -p "$_arc" || die2 "创建归档目录失败: $_arc"
+  mv "$EPIC_DIR" "$_arc/$EPIC" || die2 "搬移失败: epics/$EPIC → archive/$EPIC"
+  echo "ARCHIVE: epics/$EPIC → archive/$EPIC（一次性任务归档，退出 board/lint 扫描面）"
+  if [ "$(kind_of "$_arc/$EPIC/memory.md")" != 'temp' ]; then
+    echo "NOTE: 非临时 epic 归档 = 正式退役晋级终态（epics/ 膨胀收敛规则）——确认该功能已真退役/被替代"
+  fi
 }
 
 # $1=文件 $2=行：追加（最近 5 行内有完全相同条目则幂等跳过）
@@ -363,6 +402,54 @@ self_test() {
   ( ROOT="$T"; JSON=0; validate_epic "$E"; validate_text "重开后追加" ; require_active ) >/dev/null 2>&1
   chk "reopen 后追加恢复" "$?" "0"
 
+  # 22 archive 拦截：当前绑定（epic 行指向）拒
+  ( ROOT="$T"; JSON=0; validate_epic "$E"; run_archive ) >/dev/null 2>&1
+  chk "archive 绑定中被拒" "$?" "1"
+  # 23 archive 拦截：临时绑定 base 行指向也拒
+  printf 'epic: none\nbase: %s\n' "$E" > "$ROOT/context/CURRENT"
+  ( ROOT="$T"; JSON=0; validate_epic "$E"; run_archive ) >/dev/null 2>&1
+  chk "archive base 行指向拒" "$?" "1"
+  printf 'epic: none\n' > "$ROOT/context/CURRENT"
+  # 24 archive 拦截：devlog 未清账拒
+  printf -- '- [2026-10-28] [变更]: 未清账\n' >> "$D"
+  ( ROOT="$T"; JSON=0; validate_epic "$E"; run_archive ) >/dev/null 2>&1
+  chk "archive 未清账拒" "$?" "1"
+  # 25 archive 拦截：misc 常驻拒
+  mkdir -p "$T/context/epics/misc"
+  ( ROOT="$T"; JSON=0; validate_epic "misc"; run_archive ) >/dev/null 2>&1
+  chk "archive misc 拒" "$?" "1"
+  # 26 archive 正常路径：clear 清账后搬移成功，epics/ 下消失、archive/ 下就位
+  run_clear >/dev/null
+  run_archive >/dev/null
+  chk "archive 后 epics 目录消失" "$([ -d "$ROOT/context/epics/$E" ] && echo 在 || echo 无)" "无"
+  chk "archive 后归档目录就位" "$([ -d "$ROOT/context/archive/$E" ] && echo 在 || echo 无)" "在"
+  # 27 archive 目标重名拒（归档目录已存在同名）
+  mkdir -p "$ROOT/context/epics/$E"
+  ( ROOT="$T"; JSON=0; validate_epic "$E"; run_archive ) >/dev/null 2>&1
+  chk "archive 目标重名拒" "$?" "1"
+  # 28 --json 预检不落盘
+  printf 'epic: none\n' > "$ROOT/context/CURRENT"
+  ( ROOT="$T"; JSON=1; validate_epic "$E"; run_archive ) >/dev/null 2>&1
+  chk "archive json 预检不落盘" "$([ -d "$ROOT/context/epics/$E" ] && echo 在 || echo 无)" "在"
+  rm -rf "$ROOT/context/epics/$E"
+  # 29 临时 epic：reopen 拒（终态即 archive 不重启）
+  mkdir -p "$ROOT/context/epics/tt"
+  printf -- '---\ndev-loop: memory\nformat: v1\nepic: tt\nkind: temp\n---\n\n# tt（临时）\n\n## 断点\n- [断点] 下一步：等待拆解\n' > "$ROOT/context/epics/tt/memory.md"
+  printf -- '---\ndev-loop: devlog\nformat: v1\nepic: tt\ntotal-merged: 0\nlast-merge: none\n---\n' > "$ROOT/context/epics/tt/devlog.md"
+  ( ROOT="$T"; JSON=0; validate_epic "tt"; run_reopen ) >/dev/null 2>&1
+  chk "临时 epic reopen 被拒" "$?" "1"
+  # 30 临时 epic 归档无 NOTE（正式归档才有退役晋级提示）
+  printf 'epic: none\n' > "$ROOT/context/CURRENT"
+  _note=$( ( ROOT="$T"; JSON=0; validate_epic "tt"; run_archive ) 2>&1 | grep -c 'NOTE:' || true)
+  chk "临时归档无 NOTE" "$_note" "0"
+  chk "临时归档目录就位" "$([ -d "$ROOT/context/archive/tt" ] && echo 在 || echo 无)" "在"
+  # 31 正式 epic 归档附 NOTE
+  mkdir -p "$ROOT/context/epics/tt2"
+  printf -- '---\ndev-loop: memory\nformat: v1\nepic: tt2\n---\n\n# tt2\n\n## 断点\n- [断点] 下一步：等待拆解\n' > "$ROOT/context/epics/tt2/memory.md"
+  printf -- '---\ndev-loop: devlog\nformat: v1\nepic: tt2\ntotal-merged: 0\nlast-merge: none\n---\n' > "$ROOT/context/epics/tt2/devlog.md"
+  _note=$( ( ROOT="$T"; JSON=0; validate_epic "tt2"; run_archive ) 2>&1 | grep -c 'NOTE:' || true)
+  chk "正式归档有 NOTE" "$_note" "1"
+
   rm -rf "$T"
   echo "self-test: $pass 通过 / $failed 失败"
   [ "$failed" -eq 0 ]
@@ -396,7 +483,7 @@ if [ $# -eq 0 ]; then
 fi
 OP="$1"; shift
 case "$OP" in
-  change|verify|note|lesson|bp|count|close|reopen|clear) ;;
+  change|verify|note|lesson|bp|count|close|reopen|clear|archive) ;;
   *) die1 "未知子命令: $OP" "见 devlog --help" ;;
 esac
 
@@ -503,6 +590,12 @@ case "$OP" in
     [ -f "$EPIC_DIR/memory.md" ] || die1 "memory.md 不存在: $EPIC_DIR/memory.md" "epic 骨架缺失"
     if [ "$JSON" = 1 ]; then json_ok "预检通过: $EPIC 解除维护态（state 清除+断点等待拆解+CURRENT 指回）"; exit 0; fi
     run_reopen
+    ;;
+  archive)
+    [ $# -ge 1 ] || die1 "archive 需要 <epic>" "devlog archive <epic>"
+    validate_epic "$1"; shift
+    if [ "$JSON" = 1 ]; then json_ok "预检通过: $EPIC → context/archive/（misc/当前绑定/未清账/目标重名拒）"; exit 0; fi
+    run_archive
     ;;
   clear)
     [ $# -ge 1 ] || die1 "clear 需要 <epic>" "devlog clear <epic>"

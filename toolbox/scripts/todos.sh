@@ -11,7 +11,8 @@
 # 格式 SSOT：memo-collector §0（两级落点/条目行格式/路由规则）、§2（完成流转）。
 # 本脚本只搬运规范不定义规范；条目域归属判定（域内/全局）仍是 AI 按路由规则做的语义活。
 set -u
-SELF=$0
+SELF=$0; case "$SELF" in */*) ;; *) SELF="$(command -v -- "$SELF" 2>/dev/null || printf '%s' "$SELF")" ;; esac
+SELF="$(cd "$(dirname "$SELF")" && pwd)/$(basename "$SELF")" # 绝对化：自测 cd 沙箱后 sh "$SELF" 仍可达
 ROOT=''; OP=''; DEST=''; KW=''; JSON=0
 TYPE='功能'; BLOCK=0; STATUS=''; LAYER=''; WEIGHT=''; LIFE=''; SRC='ai'
 
@@ -157,6 +158,14 @@ case "$SRC" in ai|用户|ai,*|用户,*) : ;; *) die 1 'src 须以 ai 或 用户 
 # 落点解析：misc → 全局；其余 → 域文件（epic 目录必须已存在）
 GLOBAL_T="$CTX/todos.md"
 is_misc=0; DOMAIN_FILE=''
+
+# ---- todos 骨架模板（资产层：toolbox/templates/todos/，随 ~/.agents 仓库同步；脚本只留渲染落盘）----
+# 渲染契约 = toolbox/lib/render.sh（render_tpl/render_std/tpl_check + 残留 {{ 校验 + 转义，占位符规格见 templates/README.md）
+TPL_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)/templates"
+LIB_DIR="$(cd "$(dirname "$SELF")/.." && pwd)/lib"
+[ -f "$LIB_DIR/render.sh" ] || { echo "ERROR: 渲染器缺失: $LIB_DIR/render.sh"; echo '[remedy] 渲染器应随 ~/.agents 仓库同步；重新同步或补齐后重跑'; exit 2; }
+. "$LIB_DIR/render.sh"
+tpl_check "$TPL_ROOT/todos/global.md" "$TPL_ROOT/todos/domain.md"
 if [ "$DEST" = 'misc' ]; then
   is_misc=1
 elif [ "$OP" = 'add' ] || [ "$OP" = 'move' ]; then
@@ -170,30 +179,14 @@ fi
 ensure_global() {
   [ -f "$GLOBAL_T" ] && return 0
   mkdir -p "$CTX"
-  cat > "$GLOBAL_T" <<'EOF'
----
-memo: todos
-format: v3
----
-
-# 待办列表
-
-## misc
-EOF
+  render_tpl "$GLOBAL_T" "$TPL_ROOT/todos/global.md"
   return 0
 }
 
 ensure_domain() {
   [ -f "$DOMAIN_FILE" ] && return 0
-  cat > "$DOMAIN_FILE" <<EOF
----
-memo: todos
-format: v3
-epic: $DEST
----
-
-# $DEST · 域内待办
-EOF
+  # epic 名限 A-Za-z0-9_-，无 sed 特殊符；渲染值禁单引号（渲染契约见 lib/render.sh）
+  render_tpl "$DOMAIN_FILE" "$TPL_ROOT/todos/domain.md" "EPIC=$DEST"
   return 0
 }
 

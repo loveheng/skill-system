@@ -103,7 +103,7 @@ context/                      ← 提交 git（CURRENT 除外）
 
 ## 8. epic 收尾 (Closure)
 
-**`::done`**（misc 不适用）：§7 审计强制前置（⚠ 中止先修）→ **决策过程归档**（devlog 决策/权衡条目写进挂载底子文档「决策日志」专节，同 §4 ①）→ 收敛复盘（升舱 L2→L3，附一行收敛度量）→ **标记强制结算**（本 epic 的 UNCERTAIN/DEGRADE 逐条清零三选一：补实证删标/升级 ADR/转 `(风险)` 待办——**逾期未处置标记是唯一阻断项**）→ 待办清零（memo-collector §4）→ memory 提炼 ≤10 行 → **维护态收尾**：`toolbox run devlog close <名> <完结说明>`（memory 头部 `state: maintenance` + 断点完结 + CURRENT → none，**目录不搬**，archive 仅真退役人工移入；重开 `devlog reopen`）。**流程全文 = REFERENCE.md §8（唯一事实源）**。**收尾汇总卡必出**（标记/白名单/Hypothesis 实数，全零也出卡，以扫描实数为准）：
+**`::done`**（misc 不适用）：§7 审计强制前置（⚠ 中止先修）→ **决策过程归档**（devlog 决策/权衡条目写进挂载底子文档「决策日志」专节，同 §4 ①）→ 收敛复盘（升舱 L2→L3，附一行收敛度量）→ **标记强制结算**（本 epic 的 UNCERTAIN/DEGRADE 逐条清零三选一：补实证删标/升级 ADR/转 `(风险)` 待办——**逾期未处置标记是唯一阻断项**）→ 待办清零（memo-collector §4）→ memory 提炼 ≤10 行 → **维护态收尾**：`toolbox run devlog close <名> <完结说明>`（memory 头部 `state: maintenance` + 断点完结 + CURRENT → none）；**目录去向分叉**——正式 epic 目录不搬永驻 `epics/`，一次性/临时 epic（`kind: temp` 标记，`mount-init --temp` 建骨架内置/绑定即自动补标）走 `toolbox run devlog archive <名>` 物理归档进 `archive/`（退出 board/lint 扫描面；**归档即终态**，仅作当时开发日志留存，不再重启，口径 = REFERENCE §8）；重开 `devlog reopen`。**膨胀治理（写死）**：board 活跃区/维护区虚拟分区；维护态是过渡态，功能真退役经确认 `devlog archive` 晋级终态；严禁按状态物理分目录（口径 = REFERENCE §8）。**流程全文 = REFERENCE.md §8（唯一事实源）**。**收尾汇总卡必出**（标记/白名单/Hypothesis 实数，全零也出卡，以扫描实数为准）：
 
 ```
 📋 结算：<epic名> ｜ 标记 清零 ✓（实证删 N / ADR M / 转办 K）｜ 白名单 W 处 ｜ [Hypothesis] H 条

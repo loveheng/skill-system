@@ -49,6 +49,7 @@ scan() {
   [ -z "$epic" ] && epic='(未绑定)'
   ED="$ctx/epics/$epic"
   [ "$(sed -n '2,12{s/^state:[[:space:]]*//p}' "$ED/memory.md" 2>/dev/null | head -n 1)" = 'maintenance' ] && epic="${epic}(维护)"
+  [ "$(sed -n '2,12{s/^kind:[[:space:]]*//p}' "$ED/memory.md" 2>/dev/null | head -n 1)" = 'temp' ] && epic="${epic}(临时)"
   bp=$(grep -h '^-[[:space:]]*\[断点\]' "$ED/memory.md" "$ctx/epics/misc/memory.md" 2>/dev/null | head -n 1 | sed 's/^- \[断点\][[:space:]]*//')
   [ -z "$bp" ] && bp='（缺失，应恒为 1 条）'
   d_epic=$(tail -n 20 "$ED/devlog.md" 2>/dev/null | grep -c '^- \[' || true)

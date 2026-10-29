@@ -127,6 +127,21 @@ fi
 REPO=$(basename "$ROOT")
 CREATED=0; SKIPPED=0
 
+# ---- 骨架模板（context/ 记忆骨架=资产层：toolbox/templates/{scaffold,todos}，随 ~/.agents 仓库同步；脚本只留渲染落盘）----
+# 渲染契约 = toolbox/lib/render.sh（render_tpl/render_std/tpl_check + 残留 {{ 校验 + 转义，占位符规格见 templates/README.md）
+TPL_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)/templates"
+LIB_DIR="$(cd "$(dirname "$SELF")/.." && pwd)/lib"
+[ -f "$LIB_DIR/render.sh" ] || { echo "ERROR: 渲染器缺失: $LIB_DIR/render.sh"; echo '[remedy] 渲染器应随 ~/.agents 仓库同步；重新同步或补齐后重跑'; exit 2; }
+. "$LIB_DIR/render.sh"
+_today=$(date +%F)
+tpl_check "$TPL_ROOT/scaffold/current.md" "$TPL_ROOT/scaffold/memory-misc.md" \
+  "$TPL_ROOT/scaffold/devlog-misc.md" "$TPL_ROOT/scaffold/lessons.md" \
+  "$TPL_ROOT/scaffold/decisions.md" "$TPL_ROOT/scaffold/done.md" \
+  "$TPL_ROOT/scaffold/uncertainty-whitelist.txt" "$TPL_ROOT/scaffold/degrade-whitelist.txt" \
+  "$TPL_ROOT/scaffold/agent-patch.json" "$TPL_ROOT/scaffold/docs-readme.md" \
+  "$TPL_ROOT/scaffold/docs-index.md" "$TPL_ROOT/scaffold/coding-standards.md" \
+  "$TPL_ROOT/todos/global.md"
+
 # 模板源 SSOT：skills/dev-init/templates/（脚本只搬运 + 替换 <repo> 占位符，不内联规范正文）
 TMPLDIR=""
 for cand in "$HOME/.agents/skills/dev-init/templates" "$(cd "$(dirname "$SELF")/../skills/dev-init/templates" 2>/dev/null && pwd)"; do
@@ -177,96 +192,23 @@ mk() {
 
 if [ "$DRY" -eq 1 ]; then echo "==> 项目根: $ROOT（dry-run，不落盘）"; else echo "==> 项目根: $ROOT"; fi
 
-mk 'context/CURRENT' <<'EOF'
-epic: misc
-EOF
+render_std "$TPL_ROOT/scaffold/current.md" | mk 'context/CURRENT'
 
-mk 'context/epics/misc/memory.md' <<'EOF'
----
-dev-loop: memory
-format: v1
-epic: misc
-total-merged: 0
-last-merge: none
----
+render_std "$TPL_ROOT/scaffold/memory-misc.md" | mk 'context/epics/misc/memory.md'
 
-# misc
+render_std "$TPL_ROOT/scaffold/devlog-misc.md" | mk 'context/epics/misc/devlog.md'
 
-## 断点
-- [断点] 下一步：等待散修任务
-EOF
+render_std "$TPL_ROOT/scaffold/lessons.md" | mk 'context/lessons.md'
 
-mk 'context/epics/misc/devlog.md' <<'EOF'
----
-dev-loop: devlog
-format: v1
-epic: misc
-total-merged: 0
-last-merge: none
----
+render_std "$TPL_ROOT/scaffold/decisions.md" | mk 'context/decisions.md'
 
-（散修/小改动按行追加；≥5 条自动归并进 memory.md）
-EOF
+render_std "$TPL_ROOT/todos/global.md" | mk 'context/todos.md'
 
-mk 'context/lessons.md' <<'EOF'
----
-dev-loop: lessons
-format: v1
-epic: global
-total-merged: 0
-last-merge: none
----
+render_std "$TPL_ROOT/scaffold/done.md" | mk 'context/done.md'
 
-# lessons
+render_std "$TPL_ROOT/scaffold/uncertainty-whitelist.txt" | mk '.uncertainty-whitelist'
 
-按模块归类的避坑规则正文（正文行禁用 `- [` 开头——该前缀专属底部追加区）
-EOF
-
-mk 'context/decisions.md' <<'EOF'
----
-dev-loop: decisions
-format: v1
-epic: global
-total-merged: 0
-last-merge: none
----
-
-# decisions
-
-## misc
-EOF
-
-mk 'context/todos.md' <<'EOF'
----
-memo: todos
-format: v3
----
-
-# 待办列表
-
-## misc
-EOF
-
-mk 'context/done.md' <<'EOF'
----
-memo: done
-format: v2
----
-
-# 完成列表
-EOF
-
-mk '.uncertainty-whitelist' <<'EOF'
-# uncertainty-scan 本仓白名单（每行一个正则，# 为注释行）
-# 机制见 ai-sideeffect-guard §3：只收录逐处核读定性为「已知误报」的模式；
-# 对应路径修复后须删行恢复监控。禁预置条目——首跑基线评估后再逐条登记。
-EOF
-
-mk '.degrade-whitelist' <<'EOF'
-# degrade-scan 本仓白名单（每行一个正则，# 为注释行）
-# 机制见 ai-sideeffect-guard §3：只登记定性为「有意降级」的路径；
-# 对应路径修复后须删行恢复监控。禁预置条目——首跑基线评估后再逐条登记。
-EOF
+render_std "$TPL_ROOT/scaffold/degrade-whitelist.txt" | mk '.degrade-whitelist'
 
 # safe-patcher 项目 hook 骨架：按指纹文件探测技术栈写入 languages；hooks 留空待人工填
 # （机制见全局 safe-patcher --help：写入前在内置语法预检之后执行 hooks 专属校验）
@@ -294,13 +236,7 @@ else
   done
   [ -n "$langs" ] && langs=${langs#,} || langs='"generic"'
   mkdir -p "$ROOT"
-  cat > "$ap" <<EOF
-{
-  "_comment": "safe-patcher 项目继承配置（全局脚本写盘前执行 hooks 校验）。languages 由脚手架按指纹探测，仅供 AI 参考技术栈；hooks 每项 {match: 正则(匹配仓库相对路径,空=全部), run: 命令({file} 占位), timeout: 秒(默认60)}，任一失败即拒绝写入。禁预置校验命令——先确认本仓工具链可用再填。",
-  "languages": [$langs],
-  "hooks": []
-}
-EOF
+  render_std "$TPL_ROOT/scaffold/agent-patch.json" "LANGS=$langs" > "$ap"
   echo '  create .agent-patch.json'
   CREATED=$((CREATED + 1))
 fi
@@ -329,53 +265,11 @@ fi
 
 mk_tmpl ".agents/skills/$REPO-docs/SKILL.md" docs.template.md
 
-mk "docs/README.md" <<EOF
----
-status: active
-updated: $(date +%F)
----
+render_std "$TPL_ROOT/scaffold/docs-readme.md" "REPO=$REPO" "DATE=$_today" | mk "docs/README.md"
 
-# docs · 结构索引
+render_std "$TPL_ROOT/scaffold/docs-index.md" "REPO=$REPO" "DATE=$_today" | mk "docs/project/index.md"
 
-| 域 | 文档 | 一句话定位 |
-|---|---|---|
-| project/ | [index](project/index.md) | 功能落点索引数据（规约见 $REPO-index skill） |
-| project/ | [coding-standards](project/coding-standards.md) | 写法规范（条款随代码提炼增量长） |
-EOF
-
-mk "docs/project/index.md" <<EOF
----
-status: draft
-updated: $(date +%F)
----
-
-# $REPO · 功能落点索引（数据）
-
-> 索引数据文件（唯一数据源）；登记规约 = \`<repo>-index\` skill，机制正文 = 全局 \`project-index\`。增量登记，禁止一次性铺满。
-
-## 代码落点
-
-| 功能 | 代码落点 | 备注 |
-|---|---|---|
-| _待补_ | | |
-
-## 文档落点
-
-| 主题 | 文档路径 | 状态 |
-|---|---|---|
-| _待补_ | | |
-EOF
-
-mk "docs/project/coding-standards.md" <<EOF
----
-status: draft
-updated: $(date +%F)
----
-
-# $REPO · 写法规范（骨架）
-
-> 条款随代码提炼增量长（提炼协议 = dev-init templates/README.md），**禁预写空泛条目**；机械红线由项目池护栏脚本（arch-guard 一类）镜像，文档立法、代码只镜像。
-EOF
+render_std "$TPL_ROOT/scaffold/coding-standards.md" "REPO=$REPO" "DATE=$_today" | mk "docs/project/coding-standards.md"
 
 mk_tmpl ".agents/skills/$REPO-workflow/SKILL.md" workflow.template.md
 

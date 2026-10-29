@@ -39,6 +39,7 @@ stop 幂等（未运行 exit 0）；status 可安全重复；restart 单目标�
   toolbox run skill-verify     # project-local skill 锚点批量校验（路径/命令/类名 FQN 对仓库现实；dev-init §1.5 / ::audit 第 9 项配套，alias: sver）[docs]
   toolbox run cl               # context 记忆体系机械校验（含挂载行）[docs]
   toolbox run ctx-audit        # @audit 12 项清单呈现（--init = dev-init §2 接入验收机械档，人判 4 项另计）[docs]
+  toolbox run bootstrap [--root <根>]   # 会话开场协议编排器（context/ 探测 + 环境钩子 + panel 数据 + CURRENT 三分支 NO-CONTEXT/UNBOUND/BOUND；AGENTS.md 开场协议入口，alias: boot）[ops]
   toolbox run panel            # 开场绑定卡/::help/::board/::bind 候选的事实块（--root/--board/--deep/--debt/--mounts）→ dev-loop §3/§6；默认块含债行（U/D/P 粗计数+体检时效）
   toolbox run mount-init --epic <名> --doc <docs/...md> [--create-doc]
                                # ::bind 机械件：挂载骨架+CURRENT 一键初始化（--current-only 仅切指针；alias: mi）[ops]

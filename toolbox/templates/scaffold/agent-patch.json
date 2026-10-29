@@ -1,0 +1,5 @@
+{
+  "_comment": "safe-patcher 项目继承配置（全局脚本写盘前执行 hooks 校验）。languages 由脚手架按指纹探测，仅供 AI 参考技术栈；hooks 每项 {match: 正则(匹配仓库相对路径,空=全部), run: 命令({file} 占位), timeout: 秒(默认60)}，任一失败即拒绝写入。禁预置校验命令——先确认本仓工具链可用再填。",
+  "languages": [{{LANGS}}],
+  "hooks": []
+}
