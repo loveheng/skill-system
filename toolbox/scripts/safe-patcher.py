@@ -23,6 +23,8 @@
 
 用法:
   safe-patcher patch <file> --search <block> --replace <block> [--ws <目录>] [--json]
+  （相对路径锚定：未显式传 --ws 时，工作区锚定 git 仓库根（从 cwd 上溯发现，无 git 回退 cwd）；
+   显式 --ws 则原样生效。cwd≠工作区时输出 ⚠ 提醒——AI 传的仓库相对路径不随 cwd 漂移）
   safe-patcher write <file> [--content-file <f> | stdin] [--ws <目录>] [--json]  # 全量覆盖,<=200 行
   safe-patcher verify <file> [--ws <目录>] [--json]                              # 仅语法预检
 裸跑执行任务本体；--json 输出一行契约结论（{"status":"OK|FAIL",...}）。
@@ -86,6 +88,26 @@ class Fault(Exception):
 
 
 # ---------- 前置校验 ----------
+
+def _discover_ws() -> Path:
+    """缺省工作区发现：git 仓库根（cwd 上溯）> cwd 回退。
+
+    历史坑：缺省 "."（cwd）时，AI 在子目录（如 android/）里传仓库相对路径
+    （android/app/...）会解析到 <cwd>/android/... 副本且报 OK——实文件纹丝不动
+    （residency-strategy-ui 轮实录）。git 根锚定让「仓库相对路径」语义稳定。
+    """
+    cwd = Path.cwd()
+    try:
+        r = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+                           capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            root = Path(r.stdout.strip()).resolve()
+            if root.is_dir():
+                return root
+    except Exception:
+        pass  # 无 git / git 故障 → cwd 回退（原行为）
+    return cwd.resolve()
+
 
 def resolve_target(ws: Path, file_arg: str) -> Path:
     target = Path(file_arg)
@@ -316,14 +338,14 @@ def main() -> int:
     pp.add_argument("file")
     pp.add_argument("--search", required=True)
     pp.add_argument("--replace", required=True)
-    pp.add_argument("--ws", default=".")
+    pp.add_argument("--ws", default=None)
     pw = sub.add_parser("write", help="全量覆盖(小文件)")
     pw.add_argument("file")
     pw.add_argument("--content-file")
-    pw.add_argument("--ws", default=".")
+    pw.add_argument("--ws", default=None)
     pv = sub.add_parser("verify", help="仅语法预检")
     pv.add_argument("file")
-    pv.add_argument("--ws", default=".")
+    pv.add_argument("--ws", default=None)
 
     argv = sys.argv[1:]
     as_json = "--json" in argv
@@ -347,9 +369,14 @@ def main() -> int:
         p.print_help()
         return 0
     try:
-        ws = Path(args.ws).resolve()
+        ws = Path(args.ws).resolve() if args.ws else _discover_ws()
         if not ws.exists():
             raise Fault(f"工作区不存在: {args.ws}")
+        try:
+            if ws.resolve() != Path.cwd().resolve():
+                warn(f"工作区 {ws} ≠ cwd（相对路径按工作区解析）")
+        except Exception:
+            pass
         msg = {"patch": do_patch, "write": do_write, "verify": do_verify}[args.cmd](args, ws)
         if WARNINGS:
             msg += "\n⚠ " + "\n⚠ ".join(WARNINGS)
@@ -505,11 +532,33 @@ def self_test() -> int:
         if shf.read_text(encoding="utf-8") != "echo ok\n":
             failures.append("fail-closed 后文件被改动")
 
+        # 12) 缺省工作区发现：无 git 目录回退 cwd
+        _orig_cwd = Path.cwd()
+        try:
+            os.chdir(tmp)
+            if _discover_ws() != tmp.resolve():
+                failures.append(f"无 git 时未回退 cwd: {_discover_ws()}")
+
+            # 13) git 根锚定：cwd 在仓库子目录时，相对路径锚仓库根（cwd 陷阱金丝雀）
+            import subprocess as _sp
+            repo = tmp / "gitrepo"
+            (repo / "app/src").mkdir(parents=True, exist_ok=True)
+            _sp.run(["git", "init", "-q", str(repo)], check=False, capture_output=True)
+            os.chdir(repo / "app")
+            disc = _discover_ws()
+            if disc != repo.resolve():
+                failures.append(f"git 根锚定失败: 期望 {repo}，得 {disc}")
+            t = resolve_target(disc, "app/src/main.py")
+            if t != (repo / "app/src/main.py").resolve():
+                failures.append(f"相对路径未锚定仓库根: {t}")
+        finally:
+            os.chdir(_orig_cwd)
+
         if failures:
             for f in failures:
                 print(f"self-test FAIL: {f}")
             return 1
-        print("self-test: 11/11 通过（好补丁/hook 放行/fail-open 降级；坏补丁/多义/未找到/越界/敏感文件/失败 hook/命令缺失 处置正确；非代码文件不受 hook；语法超时 fail-closed 阻断）")
+        print("self-test: 13/13 通过（好补丁/hook 放行/fail-open 降级；坏补丁/多义/未找到/越界/敏感文件/失败 hook/命令缺失 处置正确；非代码文件不受 hook；语法超时 fail-closed 阻断；无 git 回退 cwd/git 根锚定防 cwd 陷阱）")
         return 0
     finally:
         _sh.rmtree(tmp, ignore_errors=True)
