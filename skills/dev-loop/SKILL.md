@@ -31,7 +31,6 @@ context/                      ← 提交 git（CURRENT 除外）
 ├── epics/misc/               ← 常驻杂项 epic（散修挂靠）
 ├── archive/                  ← 真退役功能（人工确认后移入；维护态 epic 留在 epics/ 不搬）
 ├── todos.md / done.md        ← 全局备忘台账（格式归 memo-collector §0）
-├── pending-confirm.md        ← 多决策点确认台账（§2；非空时大动作冻结）
 ├── lessons.md                ← 双区：正文=避坑规则 SSOT，底部=教训流水
 └── decisions.md              ← 决策洞察档案（::adr 写入；AI 只写不读）
 ```
@@ -58,8 +57,9 @@ context/                      ← 提交 git（CURRENT 除外）
 - **副作用标记**：未实证/猜测性兜底按 ai-sideeffect-guard §1 留 `// UNCERTAIN:`/`// DEGRADE:`（不落 devlog）；只阻「逾期未处置标记」，严禁删标消报告。
 - **测试写保护**：核心测试（tests/core/、tests/golden/、project-index 声明）为只读契约，diff 命中即判本轮失败，唯一出路回滚重写实现；变异探针仅 Solidify 模式 `toolbox run mscan`。
 - **公共接口变更**：Expand-Contract 三步（并存→分批迁移→单 commit 移除），禁原地突变；不设行数熔断，断言=devlog 显式声明+单轮可运行验证。
+- **有界自动推进**：`::auto [N|until 节点] [--yes]` 显式授权后会话内连走，`--yes`=带默认建议项按默认推进不停（报位留痕；负面清单同源，真裁决项仍停），**推进面=域内拆解文件结构化节点（大节点→子步骤→验收，文档正文只读）；缺省目标=当前大节点全部子步骤 [x]，无结构化拆解面则拒绝开工（补拆解或显式 until），启动报目标禁猜**；每步验证+记账+断点刷新不降；夜间档 `::auto night`（前置沙盘只读预跑——裁决前置批量答、登记走 confirm 锚点门禁、沙盘≠放开授权；决策点挂账跳过+默认建议预授权带负面清单+验证失败即整链收摊，高危仍跳过不碰）细则=REFERENCE §2（严禁常驻/默认 auto，严禁自主续期）。
 - **跨库只读评估-移交**：AI 限只读评估+移交件；目标库写入一律用户执行（逐次显式授权可豁免）。
-- **决策点台账**：一次产出 ≥2 个待裁决点 → **同轮**「登记 pending-confirm.md + 抛 [1/N] 第一问（附背景+默认建议）」；裁决型逐项串行、复述型合并抛；单轮裁决点 >4 个先按影响面收敛或分批，严禁整清单倾倒；未决期间大动作冻结、每回复列「未确认 N 项」；未清零禁 ::done。漏走时 `::confirm` 兜底。
+- **决策点台账**：一次产出 ≥2 个待裁决点 → **同轮**「登记域内台账 `epics/<名>/pending-confirm.md`（锚点=todos 序号；全局文件已退役，11-16 域内化）+ 抛 [1/N] 第一问（附背景+默认建议）」；裁决型逐项串行、复述型合并抛；单轮裁决点 >4 个先按影响面收敛或分批，严禁整清单倾倒；未决期间大动作冻结、每回复列「未确认 N 项」；未清零禁 ::done。漏走时 `::confirm` 兜底。
 - **收尾 git 建议**：Diff 轮末附「建议指令，未执行」块（git add+commit），严禁代跑 git 写操作。
 - **日志豁免**：无结论纯咨询/排错、协议操作、纯 context 文档维护轮不追加；Lesson 与 SSOT 修正不受豁免。
 - **实现口径**：优先 `toolbox run devlog <change|verify|note|lesson|bp> <epic> <文本>`；断点修复 `toolbox run breakpoint check|fix`；低频计数 `tail -n 20 | grep -c '^- \['`；量化探测 `toolbox run ctx-ratio`。降级细则与记账单一事实源=REFERENCE §2。
@@ -95,7 +95,7 @@ context/                      ← 提交 git（CURRENT 除外）
 
 ## 6. 附属指令流程 (Manual Ops)
 
-六指令——::remember 直写 memory 正文｜::adr 四段式落 decisions.md（AI 只写不读）｜::next ≤3 候选落盘为断点｜::board 逐任务看板+跨 AI 恢复咒语｜::status ≤5 行只读快照｜::help panel 四区渲染+求助入口——及「面板判读协议」。**全部执行细则 = REFERENCE.md §6（唯一事实源），按需加载。**
+六指令——::remember 直写 memory 正文｜::adr 四段式落 decisions.md（AI 只写不读）｜::next ≤3 候选落盘为断点｜::board 逐任务看板+跨 AI 恢复咒语｜::status ≤5 行只读快照｜::help panel 四区渲染+求助入口——及 ::auto 有界自动推进授权（§2）与「面板判读协议」。**全部执行细则 = REFERENCE.md §6（唯一事实源），按需加载。**
 
 ## 7. 审计与质检 (Audit)
 
@@ -119,6 +119,7 @@ context/                      ← 提交 git（CURRENT 除外）
 | `::remember` `::next` `::status` `::board` | 记忆入口 / 断点规划 / 快照 / 任务看板 | §6 |
 | `::adr` | 决策洞察档案（AI 只写不读） | §6 |
 | `::confirm [事项]` | 决策点拆分登记+分级确认（漏走台账的兜底） | §2 |
+| `::auto [N\|until 节点]` | 有界自动推进授权（护栏内连走 ≤N 个合格节点） | §2 / REFERENCE §2 |
 | `::merge` | 手动归并 | §4 |
 | `::audit` `::verify` | 十二项质检（账账）/ 记忆对现实（账实） | §7 |
 | `::done` | epic 收尾（内含审计） | §8 |

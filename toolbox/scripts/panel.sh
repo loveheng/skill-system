@@ -219,7 +219,11 @@ scan_fact() {
     printf '%s(%s)%s ' "$e" "$d" "$mark"
   done)
   [ -n "$tasks" ] || tasks='（无 epic）'
-  pc=$(cnt_file "$ctx/pending-confirm.md" '^- \[ \]')
+  pc=0
+  for pf in "$ctx"/epics/*/pending-confirm.md; do
+    [ -f "$pf" ] || continue
+    pc=$((pc + $(cnt_file "$pf" '^- \[ \]')))
+  done
   tdg=$(cnt_file "$ctx/todos.md" '^- \[ \]')
   tdd=0
   for df in "$ctx"/epics/*/todos.md; do
@@ -346,8 +350,8 @@ scan_deep() {
   tail3=$(tail -n 3 "$ctx/epics/$e/devlog.md" 2>/dev/null)
   [ -n "$tail3" ] || tail3='（devlog 为空或缺失）'
   tdc=$(cnt_file "$ctx/epics/$e/todos.md" '^- \[ \]')
-  pcc=$(section_cnt "$ctx/pending-confirm.md" "$e")
-  MSG="epic: ${e} ｜ 最后活动: ${d} ｜ memory: ${mlines} 行（软上限 150）\n断点: $(bp_of "$e")\ndevlog 尾 3:\n${tail3}\ntodos(本域): ${tdc:-0} ｜ 台账(本节): ${pcc:-0}"
+  pcc=$(cnt_file "$ctx/epics/$e/pending-confirm.md" '^- \[ \]')
+  MSG="epic: ${e} ｜ 最后活动: ${d} ｜ memory: ${mlines} 行（软上限 150）\n断点: $(bp_of "$e")\ndevlog 尾 3:\n${tail3}\ntodos(本域): ${tdc:-0} ｜ 台账(本域): ${pcc:-0}"
   return 0
 }
 
@@ -420,7 +424,8 @@ EOF
   printf -- '- [断点] 等待排期\n' > "$c/context/epics/work/memory.md"
   printf -- '- [2026-10-01] [变更]: w\n' > "$c/context/epics/work/devlog.md"
   printf -- '- [模块] x ➔ y ➔ z\n' > "$c/context/lessons.md"
-  printf -- '- [ ] [2026-10-01] D1 问题一\n- [ ] [2026-10-01] D2 问题二\n' > "$c/context/pending-confirm.md"
+  printf -- '- [ ] [2026-10-01] T3.2 D1 问题一（默认建议: a）\n' > "$c/context/epics/demo/pending-confirm.md"
+  printf -- '- [ ] [2026-10-01] T4.1 D2 问题二\n' > "$c/context/epics/work/pending-confirm.md"
   printf '# 待办\n\n## misc\n\n- [ ] [2026-10-01] (文档) C\n- [ ] [2026-10-01] (风险) R\n- [ ] [2026-09-01] (风险) [long] L\n- [ ] [2026-08-01] (功能) [once] O\n' > "$c/context/todos.md"
   printf -- '---\nmemo: todos\nformat: v3\nepic: demo\n---\n\n# demo · 域内待办\n- [ ] [2026-10-01] (功能) A\n- [ ] [2026-10-01] (修复) B\n' > "$c/context/epics/demo/todos.md"
   # docs 候选脚手架（demo 可挂，old 废弃不列）

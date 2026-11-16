@@ -250,6 +250,10 @@ append_dedupe() {
 run_bp() {
   FILE="$EPIC_DIR/memory.md"
   TMP="$FILE.bp.tmp"
+  # 防呆（2026-11-16 demo e2e 双重前缀实战）：调用方误带「下一步：」前缀时剥除——模板恒加前缀，输入须为纯文本
+  case "$TEXT" in
+    下一步：*) TEXT=${TEXT#下一步：} ;;
+  esac
   if command -v flock >/dev/null 2>&1; then
     exec 9>>"$FILE.bp.lock" || die2 "断点锁点创建失败: $FILE.bp.lock"
     flock -w 15 9 || die2 "断点锁获取失败（另一断点刷新持有超 15s——检查是否有挂起窗口）"

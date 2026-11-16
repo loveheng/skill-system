@@ -57,11 +57,14 @@ scan() {
   les=$(grep -c '^- \[' "$ctx/lessons.md" 2>/dev/null || true)
   mlines=$(wc -l < "$ED/memory.md" 2>/dev/null | tr -d '[:space:]')
   [ -z "$mlines" ] && mlines=0
+  pcn=0
+  for pf in "$ctx"/epics/*/pending-confirm.md; do
+    [ -f "$pf" ] || continue
+    c=$(grep -c '^- \[ \]' "$pf" 2>/dev/null); [ -n "$c" ] || c=0
+    pcn=$((pcn + c))
+  done
   pc=''
-  if [ -f "$ctx/pending-confirm.md" ]; then
-    pc=$(grep -c '^- \[ \]' "$ctx/pending-confirm.md" 2>/dev/null || true)
-    [ "${pc:-0}" -gt 0 ] && pc=" | 挂起确认 ${pc} 项"
-  fi
+  [ "$pcn" -gt 0 ] && pc=" | 挂起确认 ${pcn} 项"
   MSG="epic: ${epic}\n断点: ${bp}\n待归并: devlog(epic+misc)=$((d_epic + d_misc)) (epic ${d_epic}/misc ${d_misc}) | lessons=${les}\nmemory: ${mlines} 行（软上限 150）${pc}"
   return 0
 }

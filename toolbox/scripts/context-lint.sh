@@ -5,7 +5,7 @@
 # toolbox-script
 # format: v1
 # name: context-lint
-# summary: context 记忆体系机械校验：CURRENT/头部/断点/挂载行/积压/尺寸/孤儿/devlog [验证] 缺口/todos 格式(v2/v3 含状态/层/重 元数据)与 [once]/[long] 时效 + skill 指针存在性
+# summary: context 记忆体系机械校验：CURRENT/头部/断点/挂载行/积压/尺寸/孤儿/devlog [验证] 缺口/todos 格式(v2/v3 含状态/层/重 元数据)与 [once]/[long] 时效 + skill 指针存在性 + 台账(pending-confirm) 失锚/退役残留
 # trigger: audit
 # cat: docs
 # alias: cl
@@ -41,6 +41,7 @@ context-lint —— context/ 记忆体系 + skill 指针面机械校验（agent-
           todos 两级（全局 misc 兜底 + epics/<名>/todos.md 域文件）头部、行格式
           与域归属一致，全局节序（## misc 恒为末节）；
           todos [once] 过 30 天事件窗口 / [long] 超 90 天未重评
+          台账域内面：epics/<名>/pending-confirm.md 锚点失锚 + 全局退役残留
           done/decisions 头部与行格式；
   指针面  各 SKILL.md / README.md / COMMANDS.md 中 <skill> §N 与
           <skill>「节名」引用（含 stock-calculator- 前缀别名）的锚点存在性；
@@ -199,7 +200,8 @@ lint_todos_file() { # lint_todos_file <文件>：单文件共享检查（头部/
   [ -n "$bad" ] && add error TODOS "$f 待办行格式违规 行号: $bad（口径见 memo-collector §0）"
   emoji=$(grep -nE '^- \[ \] .*🅿' "$f" 2>/dev/null | sed 's/:.*//' | tr '\n' ' ')
   [ -n "$emoji" ] && add error TODOS "$f 含 emoji 状态（🅿）行号: $emoji（v3 禁用 emoji，改用 (降级)/(暂缓)/(候)，口径 memo-collector §0）"
-  x=$(count '^- \[[xX]\]' "$f")
+  # RECLAIM（2026-11-16 方案 A'）：::auto 拆解行 [x]=机械判定要素非人工打勾——带 T<节点>.<步> 锚点的行豁免，普通待办 [x] 照报
+  x=$(grep '^- \[[xX]\]' "$f" 2>/dev/null | grep -cvE '\[[0-9]{4}-[0-9]{2}-[0-9]{2}\] \([^)]+\) T[0-9]+\.[0-9]+ ')
   [ "$x" -gt 0 ] && add warn RECLAIM "$f 有 $x 条人工打勾 [x] 待回收（移入 done.md 并从列表删除）"
   c30=$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -v-30d +%Y-%m-%d 2>/dev/null || printf '')
   c90=$(date -d '90 days ago' +%Y-%m-%d 2>/dev/null || date -v-90d +%Y-%m-%d 2>/dev/null || printf '')
@@ -253,6 +255,30 @@ lint_done() {
   DONE_RE='^- \[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] .+ ?\(域: .+\)'
   bad=$(bad_lines "$f" '^- \[' "$DONE_RE")
   [ -n "$bad" ] && add error DONE "done.md 行格式违规 行号: $bad（口径见 memo-collector §0）"
+  return 0
+}
+
+lint_pc() {
+  # 决策点台账域内面（dev-loop REFERENCE §2 登记，2026-11-16 域内化）：退役残留 + 锚点失锚
+  f=$CTX/pending-confirm.md
+  [ -f "$f" ] && add warn MIGRATE "pending-confirm.md 全局台账退役残留（域内化唯一落点 epics/<名>/pending-confirm.md，迁移后删除）"
+  for f in "$CTX"/epics/*/pending-confirm.md; do
+    [ -f "$f" ] || continue
+    e=$(basename "$(dirname "$f")")
+    todos="$CTX/epics/$e/todos.md"
+    if [ ! -f "$todos" ]; then
+      add warn PCANCHOR "epics/$e/pending-confirm.md 存在但域内 todos.md 缺失（推进面未建——先拆解再挂裁决项）"
+      continue
+    fi
+    miss=0
+    while IFS= read -r a; do
+      [ -n "$a" ] || continue
+      grep -qF -- "$a" "$todos" || miss=$((miss + 1))
+    done <<EOFPC
+$(sed -n 's/^- \[ \] \[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] \([^ ]\+\).*/\1/p' "$f")
+EOFPC
+    [ "$miss" -gt 0 ] && add warn PCANCHOR "epics/$e/pending-confirm.md 有 $miss 条锚点在域内 todos.md 失锚（拆解重编号或幽灵裁决项——补锚/修正/清理，dev-loop REFERENCE §2）"
+  done
   return 0
 }
 
@@ -324,6 +350,7 @@ lint_data() {
   lint_lessons
   lint_todos
   lint_done
+  lint_pc
   lint_decisions
   return 0
 }
@@ -547,6 +574,11 @@ epic: demo
 - [ ] [2026-09-19] (修复) (block) 示例阻塞项 (src: ai)
 - [ ] [2026-09-19] (优化) [long] 长期事项样例（近期不应触发重评提示） (src: ai)
 - [ ] [2026-09-19] (功能)(层:L4)(重:中) v3 元数据样例 (src: ai)
+- [ ] [2026-09-19] (功能) T1.1 路由实现（拆解锚点样例） (src: ai)
+- [x] [2026-09-19] (功能) T1.2 拆解完成样例（[x] 不应触发 RECLAIM——方案 A' 豁免） (src: ai)
+EOF
+  cat > "$c/epics/demo/pending-confirm.md" <<'EOF'
+- [ ] [2026-09-19] T1.1 分发缓存策略（默认建议: 30min）
 EOF
   cat > "$c/done.md" <<'EOF'
 ---
@@ -627,6 +659,20 @@ format: v2
 
 - [完成条目缺日期与域标注]
 EOF
+  cat > "$b/epics/demo/todos.md" <<'EOF'
+---
+memo: todos
+format: v3
+epic: demo
+---
+
+# demo · 域内待办
+- [ ] [2026-09-19] (功能) T1.1 路由实现 (src: ai)
+EOF
+  printf -- '- [ ] [2026-09-19] T9.9 幽灵裁决项
+' > "$b/epics/demo/pending-confirm.md"
+  printf -- '- [ ] [2026-09-19] D1 全局残留
+' > "$b/pending-confirm.md"
   # ---------- 夹具 3：指针面（好/坏引用；README 须与 skills/ 同级，对齐真实布局） ----------
   mkdir -p "$T/pgood/skills/alpha" "$T/pbad/skills/alpha"
   for tree in pgood pbad; do
@@ -693,7 +739,7 @@ EOF
   else
     echo "fail: 坏样本应 exit 1，实际 $rc:"; sed 's/^/  /' "$T/o3"; fail=1
   fi
-  for needle in '[CURRENT]' '[HDR]' '[CHECKPOINT]' '[MOUNT]' '[MERGE]' '[SSOT]' '[TODOS]' '[DONE]' '[RECLAIM]' '[VERIFY]' '[ONCE]'; do
+  for needle in '[CURRENT]' '[HDR]' '[CHECKPOINT]' '[MOUNT]' '[MERGE]' '[SSOT]' '[TODOS]' '[DONE]' '[RECLAIM]' '[VERIFY]' '[ONCE]' '[PCANCHOR]'; do
     if grep -qF "$needle" "$T/o3"; then
       echo "pass: 坏样本抓到 $needle"
     else
